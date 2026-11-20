@@ -27,6 +27,8 @@
   --ok: #7fcfa5;
   --rain: #9fb3d8;      /* precipitation particles */
   --snow: #e4e8f0;
+  --plan: #efd6b2;      /* 일정 패널 글자: 시계·날씨(무채색)와 구분되는 따뜻한 톤 */
+  --plan-dim: #a8957a;
   --f-clock: "Manrope", "IBM Plex Sans KR", system-ui, sans-serif;
   --f-ui: "IBM Plex Sans KR", "Noto Sans KR", "Apple SD Gothic Neo", system-ui, sans-serif;
   color-scheme: dark;
@@ -90,38 +92,43 @@ body.night #fx { opacity: .45; }
 }
 .date b { color: var(--fg); font-weight: 400; }
 .date.holiday #dateText, .date.holiday b { color: var(--urgent); }
-/* 종일 일정은 날짜 아래 줄에: "김장 · 엄마 생일 · 제주 여행 2/3일" */
-#dayEvents { display: flex; gap: .5em; flex: none; cursor: pointer; }
+/* 종일 일정 줄 (일정 패널 첫 줄): "김장 · 엄마 생일 · 제주 여행 2/3일" */
+#dayEvents { display: flex; gap: .5em; min-width: 0; overflow: hidden; white-space: nowrap; cursor: pointer; padding-left: 14px; }
 #dayEvents:empty { display: none; }
-.de { flex: none; color: var(--fg); }
-.de::before { content: "·"; margin-right: .5em; color: var(--dim); }
+.de { flex: none; color: var(--plan); font-weight: 500; }
+.de + .de::before { content: "·"; margin-right: .5em; color: var(--plan-dim); font-weight: 400; }
 .de.hol { color: var(--urgent); }
-.de i { font-style: normal; color: var(--dim); font-size: .8em; }
+.de i { font-style: normal; color: var(--plan-dim); font-size: .8em; font-weight: 400; }
 .de.solo { overflow: hidden; text-overflow: ellipsis; }
-/* 날짜 옆에 다 안 들어가면 둘째 줄로 */
-.date.stack { flex-wrap: wrap; row-gap: 4px; }
-.date.stack #dayEvents { flex: 1 0 100%; min-width: 0; overflow: hidden; }
-.date.stack .de:first-child::before { content: none; }
-.de-more { flex: none; color: var(--dim); }
+.de-more { flex: none; color: var(--plan-dim); }
 
 /* today's agenda: one line inside the drifting block */
+/* 일정 패널: 종일 일정 줄 + 시간 일정 줄을 한 덩어리로 (시계·날씨와 구분) */
+#agendaBox {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-top: 14px; padding: 8px 14px 8px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--lamp) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lamp) 16%, transparent);
+  font-size: min(4.8vw, 3vh);
+}
 .agenda {
-  display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 4px 0;
+  display: flex; align-items: center; gap: 10px; padding: 2px 0;
   background: none; border: 0; cursor: pointer; text-align: left;
-  font-size: min(4.8vw, 3vh); color: var(--fg); max-width: 100%;
+  font-size: 1em; color: var(--plan); max-width: 100%;
 }
 .agenda .bar { width: 4px; align-self: stretch; border-radius: 2px; background: var(--ec, var(--lamp)); flex: none; }
 /* 오늘 남은 일정을 한 줄로: 다음 일정은 진하게, 그 뒤는 흐리게, 넘치면 "외 N건" */
 .agenda .its { display: flex; gap: .55em; min-width: 0; overflow: hidden; white-space: nowrap; }
-.agenda .it { flex: none; color: var(--dim); }
-.agenda .it + .it::before { content: "·"; margin-right: .55em; color: var(--dim); }
-.agenda .it .t { font-weight: 500; font-variant-numeric: tabular-nums; }
-.agenda .it.next { color: var(--fg); }
+.agenda .it { flex: none; color: var(--plan-dim); }
+.agenda .it + .it::before { content: "·"; margin-right: .55em; color: var(--plan-dim); }
+.agenda .it .t { font-weight: 600; font-variant-numeric: tabular-nums; }
+.agenda .it.next { color: var(--plan); }
 .agenda .it.live .t { color: var(--lamp); }
 .agenda .it.solo { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.agenda .pre, .agenda .more-ev, .agenda .chev { color: var(--dim); flex: none; }
+.agenda .pre, .agenda .more-ev, .agenda .chev { color: var(--plan-dim); flex: none; }
 .agenda .chev { font-size: 1.2em; line-height: 1; }
-.agenda.later .it.next { color: var(--dim); }
+.agenda.later .it.next { color: var(--plan-dim); }
 #dateText { cursor: pointer; }
 /* 일정이 하나도 없을 때만 요일 옆에 보이는 추가 버튼 */
 #dateAdd {
@@ -132,7 +139,7 @@ body.night #fx { opacity: .45; }
 /* 공간이 모자라면 덜 중요한 것부터 숨김: 시간별 예보 → 날씨 설명 → 일정 줄 */
 #float.c1 .wx-hours, #float.c2 .wx-hours, #float.c3 .wx-hours { display: none; }
 #float.c2 .wx-desc, #float.c3 .wx-desc { display: none; }
-#float.c3 .agenda { display: none; }
+#float.c3 #agendaBox { display: none; }
 
 .wx { display: flex; flex-direction: column; gap: 14px; }
 .wx-now { display: flex; align-items: center; gap: 14px; }
@@ -308,8 +315,11 @@ body.night #dock { opacity: .75; }
     <div id="float" aria-label="시계와 날씨">
       <div>
         <div class="clock" id="clock">--<span class="colon">:</span>--</div>
-        <div class="date" id="date"><span id="dateText"></span><button type="button" id="dateAdd" aria-label="일정 추가" hidden>＋</button><span id="dayEvents"></span></div>
-        <button type="button" class="agenda" id="agenda" hidden></button>
+        <div class="date" id="date"><span id="dateText"></span><button type="button" id="dateAdd" aria-label="일정 추가" hidden>＋</button></div>
+        <div id="agendaBox" hidden>
+          <div id="dayEvents"></div>
+          <button type="button" class="agenda" id="agenda" hidden></button>
+        </div>
       </div>
       <div class="wx" id="wx"></div>
     </div>
@@ -974,6 +984,7 @@ function renderAgenda() {
     : "";
   // 일정 추가는 모달에만. 오늘·내일 일정이 하나도 없을 때만 요일 옆에 작은 ＋ (모달로 가는 길이 없으므로)
   $("#dateAdd").hidden = !(canAddEvent() && !list.length && !today.length);
+  $("#agendaBox").hidden = !list.length && !today.some((e) => e.allDay);
   const sig = html + (list[0]?.color || "");
   if (sig !== agendaSig) {
     agendaSig = sig;
@@ -1001,28 +1012,27 @@ function renderDayLine() {
   }
   fitDayLine();
 }
+/* 일정 패널 폭 = 시계 폭 (화면을 넘지 않게) */
+function sizeAgendaBox() {
+  $("#agendaBox").style.maxWidth = `${Math.min($("#zone").clientWidth || innerWidth, Math.max($("#clock").offsetWidth, 340))}px`;
+}
 function fitDayLine() {
-  const d = $("#date"), box = $("#dayEvents"), items = [...d.querySelectorAll(".de")], more = d.querySelector(".de-more");
-  d.classList.remove("stack");
-  if (!items.length) { d.style.maxWidth = ""; return; }
-  d.style.maxWidth = `${Math.min($("#zone").clientWidth || innerWidth, Math.max($("#clock").offsetWidth, 340))}px`;
+  const box = $("#dayEvents"), items = [...box.querySelectorAll(".de")], more = box.querySelector(".de-more");
+  if (!items.length || !more) return;
+  sizeAgendaBox();
   items[0].style.maxWidth = "";
   const show = (k) => {
     items.forEach((it, i) => { it.hidden = i >= k; it.classList.toggle("solo", k === 1 && i === 0); });
     more.hidden = k === items.length;
     more.textContent = `외 ${items.length - k}`;
   };
-  const fits = () => d.scrollWidth <= d.clientWidth + 1 && box.scrollWidth <= box.clientWidth + 1;
-  d.classList.add("stack");                 // 종일 일정은 항상 날짜 아래 줄에, 들어가는 만큼
-  for (let k = items.length; k >= 1; k--) { show(k); if (fits()) return; }
+  for (let k = items.length; k >= 1; k--) { show(k); if (box.scrollWidth <= box.clientWidth + 1) return; }
   items[0].style.maxWidth = `${Math.max(48, box.clientWidth - more.offsetWidth - 12)}px`; // 하나도 길면 말줄임
 }
 /* 시계 폭 안에 들어가는 만큼만 보여주고 나머지는 "외 N건" */
 function fitAgenda() {
   const el = $("#agenda"); if (el.hidden) return;
-  const zoneW = $("#zone").clientWidth || innerWidth;
-  const ref = Math.max($("#clock").offsetWidth, 340);
-  el.style.maxWidth = `${Math.min(zoneW, ref)}px`;
+  sizeAgendaBox();
   const its = el.querySelector(".its"), items = [...el.querySelectorAll(".it")], more = el.querySelector(".more-ev");
   if (!its || !more) return;   // "＋ 일정 추가"만 있을 때
   for (let k = items.length; k >= 1; k--) {

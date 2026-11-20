@@ -16,6 +16,8 @@
  *   5. URL 과 TOKEN 을 키오스크에 등록 (README 의 PUT /api/gas)
  *
  * 다른 캘린더도 읽으려면 프로젝트 설정 → 스크립트 속성 → CALENDARS 에 "가족,아이 학원" 처럼 쉼표로.
+ * 이름이 같은 캘린더가 여럿이면(예: Google 가족 그룹이 자동으로 만든 "가족") 이름 대신
+ * 캘린더 ID(…@group.calendar.google.com)를 적는다. ID 는 diag() 실행 로그에 나온다.
  * 일정 추가는 항상 첫 번째 캘린더에 한다.
  */
 
@@ -38,7 +40,19 @@ function setup() {
 function calendars_() {
   const names = (PropertiesService.getScriptProperties().getProperty("CALENDARS") || DEFAULT_CALENDAR)
     .split(",").map((s) => s.trim()).filter(String);
-  return names.map((n) => CalendarApp.getCalendarsByName(n)[0]).filter(Boolean);
+  return names.map((n) => (n.indexOf("@") > 0 ? CalendarApp.getCalendarById(n) : CalendarApp.getCalendarsByName(n)[0])).filter(Boolean);
+}
+
+/** 어떤 캘린더가 있는지, 오늘 일정이 어디에 있는지 확인 (편집기에서 실행 → 실행 로그) */
+function diag() {
+  Logger.log("계정: " + Session.getEffectiveUser().getEmail());
+  Logger.log("CALENDARS 속성: " + (PropertiesService.getScriptProperties().getProperty("CALENDARS") || DEFAULT_CALENDAR));
+  CalendarApp.getAllCalendars().forEach((c) => {
+    const today = c.getEventsForDay(new Date());
+    Logger.log(c.getName() + " | 내 캘린더:" + c.isOwnedByMe() + " | 숨김:" + c.isHidden() +
+      " | 오늘 " + today.length + "개 " + today.map((e) => e.getTitle()).join(", ") + " | id=" + c.getId());
+  });
+  Logger.log("키오스크가 쓰는 캘린더: " + calendars_().map((c) => c.getName() + " (" + c.getId() + ")").join(", "));
 }
 
 function auth_(token) {
