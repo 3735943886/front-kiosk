@@ -5,10 +5,14 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- TTS 엔진에 바인딩하기 위한 패키지 가시성 (targetSdk 30) -->
+    <!-- 패키지 가시성 (targetSdk 30): TTS 엔진 바인딩, /api/admin/open {"package"} 로 앱 실행 -->
     <queries>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
         </intent>
     </queries>
 

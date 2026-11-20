@@ -98,6 +98,9 @@ object Hub {
     val ttsKoreanReady get() = ttsKorean
     fun ttsEngine(): String = tts?.defaultEngine ?: ""
 
+    /** 설치된 앱의 실행 인텐트 (매니페스트 <queries> LAUNCHER 로 보이는 앱만) */
+    fun launchIntent(pkg: String): android.content.Intent? = appCtx?.packageManager?.getLaunchIntentForPackage(pkg)
+
     /** 메인 스레드에서 화면(Activity)으로 작업. 화면이 없으면 false */
     fun onActivity(block: (android.app.Activity) -> Unit): Boolean {
         val a = activity?.get() ?: return false

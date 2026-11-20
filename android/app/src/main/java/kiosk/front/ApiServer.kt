@@ -130,12 +130,11 @@ class ApiServer(port: Int) : NanoHTTPD(port) {
                 val o = JSONObject(body.ifBlank { "{}" })
                 val uri = o.optString("uri"); val pkg = o.optString("package")
                 require(uri.isNotBlank() || pkg.isNotBlank()) { "uri or package required" }
+                val intent = if (uri.isNotBlank()) android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(uri))
+                else Hub.launchIntent(pkg) ?: return json(Response.Status.NOT_FOUND, JSONObject().put("error", "no launchable app: $pkg"))
                 json(Response.Status.OK, ok().put("done", Hub.onActivity { a ->
                     Kiosk.unlock(a)
-                    val i = if (uri.isNotBlank()) android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(uri))
-                    else a.packageManager.getLaunchIntentForPackage(pkg)
-                    if (i == null) Log.w(TAG, "open: no launch intent for $pkg")
-                    else try { a.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { Log.w(TAG, "open failed", e) }
+                    try { a.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { Log.w(TAG, "open failed", e) }
                 }))
             }
             else -> json(Response.Status.NOT_FOUND, JSONObject().put("error", "not found: $m $path"))
