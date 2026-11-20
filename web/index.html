@@ -135,7 +135,7 @@ body.night #fx { opacity: .45; }
 #float.c2 .wx-desc, #float.c3 .wx-desc { display: none; }
 #float.c3 #agendaBox { display: none; }
 
-.wx { display: flex; flex-direction: column; gap: 14px; }
+.wx { display: flex; flex-direction: column; gap: 14px; cursor: pointer; }
 .wx-now { display: flex; align-items: center; gap: 14px; }
 .wx-now svg { width: min(15vw, 9.5vh); height: min(15vw, 9.5vh); color: var(--fg); flex: none; }
 .wx-temp { font-family: var(--f-clock); font-weight: 300; font-size: min(14vw, 9vh); line-height: 1; font-variant-numeric: tabular-nums; }
@@ -254,6 +254,25 @@ body.night #fx { opacity: .45; }
 .ev.past { opacity: .45; }
 .ev.now .t { color: var(--lamp); }
 .ev-empty { color: var(--dim); font-size: 16px; padding: 8px 0; }
+
+/* 주간 날씨 */
+.fc-list { display: flex; flex-direction: column; }
+.fc {
+  display: grid; grid-template-columns: 58px 30px minmax(0, 1fr) 46px 38px minmax(60px, 120px) 38px; gap: 10px; align-items: center;
+  padding: 11px 2px; border-bottom: 1px solid var(--faint); font-size: 17px; font-variant-numeric: tabular-nums;
+}
+.fc:last-child { border-bottom: 0; }
+.fc svg { width: 30px; height: 30px; color: var(--fg); }
+.fc-d { font-size: 18px; }
+.fc-d small { display: block; font-size: 13px; color: var(--dim); }
+.fc-d.sun { color: var(--urgent); }
+.fc-d.sat { color: var(--info); }
+.fc.today .fc-d { font-weight: 600; }
+.fc-l { color: var(--dim); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-p { color: var(--info); font-size: 14px; text-align: right; }
+.fc-lo { color: var(--dim); text-align: right; }
+.fc-bar { position: relative; height: 6px; border-radius: 3px; background: var(--faint); }
+.fc-bar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: linear-gradient(90deg, var(--info), var(--lamp)); }
 
 /* 일정 추가 */
 .form { display: flex; flex-direction: column; gap: 12px; }
@@ -473,10 +492,10 @@ const WMO = (code, day = true) => {
 async function fetchWeather() {
   const u = new URL("https://api.open-meteo.com/v1/forecast");
   u.search = new URLSearchParams({
-    latitude: CONFIG.lat, longitude: CONFIG.lon, timezone: "Asia/Seoul", forecast_days: 2,
+    latitude: CONFIG.lat, longitude: CONFIG.lon, timezone: "Asia/Seoul", forecast_days: 7,
     current: "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day",
     hourly: "temperature_2m,weather_code,precipitation_probability,is_day",
-    daily: "temperature_2m_max,temperature_2m_min",
+    daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
   });
   const r = await fetch(u, { cache: "no-store" });
   if (!r.ok) throw new Error("weather " + r.status);
@@ -498,11 +517,19 @@ function sampleWeather() { // 네트워크가 막힌 미리보기용 예시 데�
     sample: true,
     current: { temperature_2m: temperature_2m[0], apparent_temperature: temperature_2m[0] - 3, relative_humidity_2m: 58, weather_code: weather_code[0], is_day: is_day[0] },
     hourly: { time, temperature_2m, weather_code, precipitation_probability, is_day },
-    daily: { temperature_2m_max: [9], temperature_2m_min: [1] },
+    daily: {
+      time: [0, 1, 2, 3, 4, 5, 6].map((i) => { const d = new Date(dayStart(Date.now(), i)); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }),
+      weather_code: [2, 61, 3, 0, 1, 71, 2],
+      temperature_2m_max: [9, 7, 6, 8, 10, 4, 6],
+      temperature_2m_min: [1, 2, -1, -2, 0, -4, -3],
+      precipitation_probability_max: [10, 70, 30, 0, 0, 60, 20],
+    },
   };
 }
 
+let lastWx = null;
 function renderWeather(w) {
+  lastWx = w;
   const c = w.current, [ico, label] = WMO(c.weather_code, !!c.is_day);
   const now = Date.now();
   const start = w.hourly.time.findIndex((t) => new Date(t).getTime() > now - 3600e3);
@@ -524,6 +551,32 @@ function renderWeather(w) {
     </div>
     <div class="wx-hours">${hours.join("")}</div>`;
   setPrecip(c.weather_code);
+}
+
+/** 날씨를 누르면 뜨는 주간 예보 (오늘부터 7일). 막대는 한 주 최저~최고 안에서 그날의 기온 범위 */
+function openForecast() {
+  openSheetId = null;
+  const d = lastWx?.daily;
+  const n = d?.time?.length && d.weather_code ? d.time.length : 0;
+  const lo = n ? Math.min(...d.temperature_2m_min) : 0, hi = n ? Math.max(...d.temperature_2m_max) : 1, span = Math.max(hi - lo, 1);
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const t = new Date(d.time[i] + "T00:00"), [ico, label] = WMO(d.weather_code[i]);
+    const mn = Math.round(d.temperature_2m_min[i]), mx = Math.round(d.temperature_2m_max[i]), p = d.precipitation_probability_max?.[i] ?? 0;
+    const name = i === 0 ? "오늘" : i === 1 ? "내일" : DAYS[t.getDay()];
+    const we = t.getDay() === 0 ? " sun" : t.getDay() === 6 ? " sat" : "";
+    rows.push(`<div class="fc${i === 0 ? " today" : ""}">
+      <span class="fc-d${we}">${name}<small>${t.getMonth() + 1}/${t.getDate()}</small></span>
+      ${svg(ico)}<span class="fc-l">${label}</span>
+      <span class="fc-p">${p >= 20 ? p + "%" : ""}</span>
+      <span class="fc-lo">${mn}°</span>
+      <span class="fc-bar"><i style="left:${((mn - lo) / span) * 100}%;right:${((hi - mx) / span) * 100}%"></i></span>
+      <span class="fc-hi">${mx}°</span></div>`);
+  }
+  const demo = lastWx?.sample ? ' <span class="tag">예시</span>' : "";
+  sheetShow(`<h2 class="sh-title">주간 날씨 · ${esc(CONFIG.place)}${demo}</h2>
+    <div class="fc-list">${rows.length ? rows.join("") : '<div class="ev-empty">예보를 아직 받지 못했어요</div>'}</div>
+    <div class="sh-actions"><button type="button" class="btn primary" data-act="close">닫기</button></div>`);
 }
 
 let wxRetry = 0;
@@ -1232,6 +1285,7 @@ function onActivate(e) {
   }
   if (e.target.closest("[data-more]")) return openList();
   if (e.target.closest("#agenda, #dayEvents, #dateText, #clock")) return openAgenda();
+  if (e.target.closest("#wx")) return openForecast();
   const evId = e.target.closest("[data-ev]")?.dataset.ev;
   if (evId) return openEvent(evId);
   const ai = e.target.closest("[data-ai]")?.dataset.ai;
