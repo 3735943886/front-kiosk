@@ -258,7 +258,7 @@ body.night #fx { opacity: .45; }
 /* 주간 날씨 */
 .fc-list { display: flex; flex-direction: column; }
 .fc {
-  display: grid; grid-template-columns: 58px 30px minmax(0, 1fr) 46px 38px minmax(60px, 120px) 38px; gap: 10px; align-items: center;
+  display: grid; grid-template-columns: 48px 30px minmax(0, 1fr) 38px 32px minmax(40px, 1fr) 32px; gap: 8px; align-items: center;
   padding: 11px 2px; border-bottom: 1px solid var(--faint); font-size: 17px; font-variant-numeric: tabular-nums;
 }
 .fc:last-child { border-bottom: 0; }
@@ -268,7 +268,7 @@ body.night #fx { opacity: .45; }
 .fc-d.sun { color: var(--urgent); }
 .fc-d.sat { color: var(--info); }
 .fc.today .fc-d { font-weight: 600; }
-.fc-l { color: var(--dim); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-l { color: var(--dim); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fc-p { color: var(--info); font-size: 14px; text-align: right; }
 .fc-lo { color: var(--dim); text-align: right; }
 .fc-bar { position: relative; height: 6px; border-radius: 3px; background: var(--faint); }
