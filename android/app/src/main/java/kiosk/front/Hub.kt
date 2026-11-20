@@ -6,8 +6,6 @@ import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.webkit.WebView
-import org.json.JSONArray
-import org.json.JSONObject
 import java.lang.ref.WeakReference
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
@@ -27,7 +25,6 @@ object Hub {
     @Volatile private var ttsKorean = false
     @Volatile private var ttsStarting = false
     private val pendingSpeech = ArrayDeque<String>()
-    private val recent = ArrayDeque<JSONObject>()
     private var appCtx: Context? = null
     /** 원격 관리(API)에서 잠금 해제·앱 열기를 하려고 들고 있는 화면 */
     var activity: WeakReference<android.app.Activity>? = null
@@ -108,10 +105,4 @@ object Hub {
         return true
     }
 
-    /** 최근 받은 다른 앱 알림 (파서 만들 때 실제 문구 확인용) */
-    fun record(o: JSONObject) = synchronized(recent) {
-        recent.addLast(o)
-        while (recent.size > 100) recent.removeFirst()
-    }
-    fun recentJson(): String = synchronized(recent) { JSONArray(recent.toList()).toString() }
 }

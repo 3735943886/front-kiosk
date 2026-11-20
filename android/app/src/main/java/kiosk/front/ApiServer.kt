@@ -14,7 +14,7 @@ import org.json.JSONTokener
  *   PUT    /api/agenda              일정 목록 통째로 교체 (body: JSON 배열)
  *   POST   /api/speak               {"text": "..."} 화면 표시 없이 음성만
  *   GET    /api/state               현재 알림·일정
- *   GET    /api/android-notifications  최근 받은 다른 앱 알림 원본
+ *   GET    /api/android-notifications?package=&limit=  받은 알림 원본 (최근 것부터, 기기 파일에 500개 보관)
  *   PUT    /api/config              {"place","lat","lon","pin","watch","consume","url"}
  *   POST   /api/reload              화면 새로고침
  *   PUT    /api/calendars           구독 캘린더 목록 교체: 항목마다 name, url, color, remind (url 은 기기에만 저장)
@@ -85,7 +85,10 @@ class ApiServer(port: Int) : NanoHTTPD(port) {
                 val r = decode(Hub.jsBlocking("JSON.stringify({notifs: kiosk.list(), agenda: kiosk.agenda()})")) as? String
                 raw(Response.Status.OK, r ?: "{}")
             }
-            m == Method.GET && path == "/api/android-notifications" -> raw(Response.Status.OK, Hub.recentJson())
+            m == Method.GET && path == "/api/android-notifications" -> {
+                val limit = s.parameters["limit"]?.firstOrNull()?.toIntOrNull()?.coerceIn(1, 500) ?: 100
+                raw(Response.Status.OK, NotifLog.recent(limit, s.parameters["package"]?.firstOrNull()?.takeIf { it.isNotBlank() }).toString())
+            }
             m == Method.PUT && path == "/api/config" -> {
                 val o = JSONObject(body)
                 val kv = o.keys().asSequence().associateWith { o.get(it).toString() }

@@ -3,12 +3,13 @@
 안드로이드 태블릿을 벽걸이 대시보드로 쓰기 위한 키오스크 앱.
 시계·날씨·가족 일정·알림 카드를 한 화면에 띄우고, 다른 앱의 푸시(배달 앱 등)를 읽어 카드로 바꿔 보여준다.
 
-- **web/index.html** — 대시보드 UI 전체 (HTML/CSS/JS 한 파일). 브라우저에서 바로 열어 데모 패널로 확인할 수 있다.
+- **web/index.html** — 대시보드 UI 전체. 브라우저에서 바로 열어 데모 패널로 확인할 수 있다.
+- **web/apps/** — 다른 앱 알림 어댑터 (앱별 문구 해석은 여기에만 둔다)
 - **gas/** — 가족 캘린더 읽기·쓰기용 Google Apps Script 웹 앱
 - **android/** — UI를 감싸는 얇은 Android 앱 (Kotlin, minSdk 30)
   - WebView로 `web/` 을 띄움 (앱 assets 로 포함)
   - 디바이스 오너 + 잠금 작업 모드: 알림창·빠른 설정·홈/최근 앱 제스처·전원 메뉴·다른 앱 알림 팝업 차단
-  - 알림 수신 서비스: 지정한 앱의 알림을 읽어 대시보드 카드로 변환하고 원본은 지움
+  - 알림 수신 서비스: 지정한 앱의 알림을 그대로 대시보드에 넘기고 원본은 지움 (해석은 web/apps)
   - LAN HTTP API, TTS(안드로이드 음성 엔진)
   - 관리자 탈출구: 왼쪽 위 모서리 5번 탭 → PIN
 
@@ -52,6 +53,16 @@ adb logcat -d -s Kiosk | grep token                       # API 토큰 확인
 업데이트: `adb install -t -r new.apk`
 해제: 관리자 메뉴 → 디바이스 오너 해제, 또는 `adb shell dpm remove-active-admin kiosk.front/.AdminReceiver` (testOnly 빌드)
 
+## 다른 앱 알림
+
+1. 받을 앱 지정: `PUT /api/config {"watch": "패키지1,패키지2"}`. 알림 읽기 권한은
+   `adb shell cmd notification allow_listener kiosk.front/kiosk.front.NotifListener`
+2. 지정한 앱의 알림은 어댑터가 없어도 기본 카드(제목·본문)로 뜬다. 같은 알림이 갱신되면 같은 카드가 바뀌고,
+   앱이 알림을 거두면 카드도 닫힌다.
+3. 앱별로 다듬으려면 `web/apps/<앱>.js` 에 어댑터를 두고 `index.html` 에 `<script>` 한 줄을 더한다.
+   형식은 `web/apps/registry.js` 주석 참고. 광고 무시(`null`), 여러 알림을 한 카드로 묶기(`id`),
+   진행 단계·음성 등. 배달 앱 공통 단계 찾기는 `web/apps/delivery.js`.
+
 ## HTTP API
 
 `http://<device-ip>:8080`, `Authorization: Bearer <token>` (health 제외)
@@ -63,7 +74,7 @@ adb logcat -d -s Kiosk | grep token                       # API 토큰 확인
 | `PUT /api/agenda` | 일정 목록 전체 교체 |
 | `POST /api/speak` | `{"text"}` 음성만 |
 | `GET /api/state` | 현재 알림·일정 |
-| `GET /api/android-notifications` | 최근 받은 다른 앱 알림 원본 (파서 작성용) |
+| `GET /api/android-notifications?package=&limit=` | 받은 알림 원본, 최근 것부터 (기기 파일에 500개 보관, 어댑터 작성용) |
 | `PUT /api/config` | `place` `lat` `lon` `pin` `watch` `consume` `url` |
 | `POST /api/reload` | 화면 새로고침 |
 | `PUT /api/calendars` · `GET` · `POST …/sync` | iCal 구독 캘린더 |

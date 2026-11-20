@@ -10,6 +10,7 @@ class KioskApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Prefs.init(this)
+        NotifLog.init(this)
         Hub.init(this)
         ApiServer.startDefault()
         CalendarSync.start()

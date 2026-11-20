@@ -347,6 +347,10 @@ body.night #dock { opacity: .75; }
 <div id="sheet" hidden></div>
 
 <script src="ics.js"></script>
+<script src="apps/registry.js"></script>
+<script src="apps/delivery.js"></script>
+<script src="apps/baemin.js"></script>
+<script src="apps/coupangeats.js"></script>
 <script>
 "use strict";
 /* ================= config ================= */
@@ -1292,39 +1296,44 @@ function pixelShift() {
   $("#stage").style.transform = `translate(${r()}px, ${r()}px)`;
 }
 
-/* ================= Android 알림 → 카드 규칙 =================
-   기기 앱이 감시 대상 앱의 알림을 raw({package, title, text, bigText, subText, ...})로 넘긴다.
-   패키지별 규칙이 알림 객체를 돌려주면 카드로 띄우고, null 이면(광고 등) 무시한다.
+/* ================= 다른 앱 알림 → 카드 =================
+   기기 앱이 감시 대상 앱의 알림을 raw 로 넘긴다 (형식은 apps/registry.js).
+   누구 알림이든 기본 카드로 띄우고, 앱별 손질은 apps/<앱>.js 어댑터가 맡는다.
+   앱이 스스로 알림을 거두면(주문 끝 등) 그 알림으로 만든 카드도 닫는다.
 ================================================== */
-const DELIVERY_STEPS_ANDROID = ["주문 접수", "조리 중", "배달 출발", "배달 완료"];
-const ANDROID_RULES = {
-  // 배달의민족: 실제 알림 문구를 확인한 뒤 다듬을 예정 (GET /api/android-notifications)
-  "com.sampleapp": (r) => {
-    const body = r.bigText || r.text;
-    const all = `${r.title} ${body}`;
-    const step = /완료|도착했/.test(all) ? 3 : /출발|배달을 시작|픽업/.test(all) ? 2
-      : /조리|준비 중|준비를 시작/.test(all) ? 1 : /접수|수락|주문을 확인/.test(all) ? 0 : null;
-    if (step === null) return null;
-    return {
-      id: "baemin-order", source: "delivery", level: step === 3 ? "ok" : "info",
-      title: r.title || DELIVERY_STEPS_ANDROID[step], body,
-      progress: { step, steps: DELIVERY_STEPS_ANDROID },
-      speak: step === 1 ? undefined : `${DELIVERY_STEPS_ANDROID[step]}. ${r.title || ""}`,
-      detail: { text: [r.title, body, r.subText].filter(Boolean).join("\n") },
-      ttlSec: step === 3 ? 1800 : 4 * 3600,
-    };
-  },
-};
+function androidCard(r) {
+  const app = KioskApps.get(r.package);
+  const body = r.bigText || r.text || (r.lines || []).join("\n");
+  const base = {
+    id: `app:${r.package}:${r.tag}:${r.id}`,
+    source: "app", sourceLabel: app?.label || r.appLabel || r.package, icon: app?.icon || "bell",
+    title: r.title || app?.label || r.appLabel || "알림", body,
+    detail: { text: [r.title, body, r.subText].filter(Boolean).join("\n") },
+    ttlSec: r.ongoing ? 12 * 3600 : 2 * 3600,
+  };
+  let extra;
+  try { extra = app?.card ? app.card(r) : undefined; }
+  catch (e) { console.warn("adapter", r.package, e); }
+  if (extra === null) return null;
+  const n = { ...base, ...(extra || {}), androidKey: r.key };
+  if (!n.id) n.id = base.id;
+  return n;
+}
 function ingestAndroid(raw) {
   const r = typeof raw === "string" ? JSON.parse(raw) : raw;
-  const rule = ANDROID_RULES[r.package];
-  const n = rule ? rule(r) : null;
-  if (n) notify(n);
-  return !!n;
+  const n = androidCard(r);
+  if (!n) return false;
+  const prev = notifs.get(n.id);
+  if (prev && prev.title === n.title && prev.body === n.body && prev.progress?.step === n.progress?.step) n.silent = true;  // 같은 내용 재게시
+  notify(n);
+  return true;
+}
+function removeAndroid(key) {
+  for (const n of [...notifs.values()]) if (n.androidKey === key) dismiss(n.id);
 }
 
 /* ================= public API for native shell / scripts ================= */
-window.kiosk = { notify, dismiss, snooze, clear: clearAll, list: () => visible(), setAgenda, agenda: () => agenda, ingestAndroid, loadIcs, setCalendars, loadEvents, onAddResult };
+window.kiosk = { notify, dismiss, snooze, clear: clearAll, list: () => visible(), setAgenda, agenda: () => agenda, ingestAndroid, removeAndroid, loadIcs, setCalendars, loadEvents, onAddResult };
 
 /* ================= demo ================= */
 const DELIVERY_STEPS = ["주문 접수", "조리 중", "배달 출발", "배달 완료"];
