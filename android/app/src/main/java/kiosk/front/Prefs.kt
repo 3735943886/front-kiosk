@@ -37,10 +37,8 @@ object Prefs {
     var lat: String get() = str("lat", ""); set(v) = put("lat", v)
     var lon: String get() = str("lon", ""); set(v) = put("lon", v)
 
-    /**
-     * 구독 캘린더 [{ "name", "url", "color", "remind": [분...] }] — url 은 비밀 iCal 주소라 기기에만 둔다.
-     * 설정: PUT /api/calendars
-     */
+    // 구독 캘린더 JSON 배열: 항목마다 name, url, color, remind(분 목록).
+    // url 은 비밀 iCal 주소라 기기에만 둔다. 설정: PUT /api/calendars
     var calendarsJson: String get() = str("calendars", "[]"); set(v) = put("calendars", v)
 
     /** 웹 쪽 CONFIG 에 합쳐질 값 */

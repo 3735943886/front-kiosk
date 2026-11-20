@@ -17,7 +17,7 @@ import org.json.JSONTokener
  *   GET    /api/android-notifications  최근 받은 다른 앱 알림 원본
  *   PUT    /api/config              {"place","lat","lon","pin","watch","consume","url"}
  *   POST   /api/reload              화면 새로고침
- *   PUT    /api/calendars           [{"name","url","color","remind":[분]}] 구독 캘린더 교체 (url 은 기기에만 저장)
+ *   PUT    /api/calendars           구독 캘린더 목록 교체: 항목마다 name, url, color, remind (url 은 기기에만 저장)
  *   GET    /api/calendars           구독 캘린더 목록(url 대신 host)과 마지막 동기화 결과
  *   POST   /api/calendars/sync      지금 동기화
  */
