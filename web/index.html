@@ -130,12 +130,6 @@ body.night #fx { opacity: .45; }
 .agenda .chev { font-size: 1.2em; line-height: 1; }
 .agenda.later .it.next { color: var(--plan-dim); }
 #dateText, #clock { cursor: pointer; }
-/* 일정이 하나도 없을 때만 요일 옆에 보이는 추가 버튼 */
-#dateAdd {
-  flex: none; align-self: center; width: 1.5em; height: 1.5em; margin-left: .1em;
-  display: grid; place-items: center; padding: 0; font-size: 1em; line-height: 1;
-  color: var(--dim); background: none; border: 1px solid var(--faint); border-radius: 50%; cursor: pointer;
-}
 /* 공간이 모자라면 덜 중요한 것부터 숨김: 시간별 예보 → 날씨 설명 → 일정 줄 */
 #float.c1 .wx-hours, #float.c2 .wx-hours, #float.c3 .wx-hours { display: none; }
 #float.c2 .wx-desc, #float.c3 .wx-desc { display: none; }
@@ -315,7 +309,7 @@ body.night #dock { opacity: .75; }
     <div id="float" aria-label="시계와 날씨">
       <div>
         <div class="clock" id="clock">--<span class="colon">:</span>--</div>
-        <div class="date" id="date"><span id="dateText"></span><button type="button" id="dateAdd" aria-label="일정 추가" hidden>＋</button></div>
+        <div class="date" id="date"><span id="dateText"></span></div>
         <div id="agendaBox" hidden>
           <div id="dayEvents"></div>
           <button type="button" class="agenda" id="agenda" hidden></button>
@@ -996,7 +990,6 @@ function renderAgenda() {
     ? `<span class="bar"></span>${later ? '<span class="pre">내일</span>' : ""}<span class="its">${list.map(item).join("")}</span><span class="more-ev" hidden></span><span class="chev">›</span>`
     : "";
   // 일정 추가는 모달에만. 오늘·내일 일정이 하나도 없을 때만 요일 옆에 작은 ＋ (모달로 가는 길이 없으므로)
-  $("#dateAdd").hidden = !(canAddEvent() && !list.length && !today.length);
   $("#agendaBox").hidden = !list.length && !today.some((e) => e.allDay);
   const sig = html + (list[0]?.color || "");
   if (sig !== agendaSig) {
@@ -1238,7 +1231,6 @@ function onActivate(e) {
     return;
   }
   if (e.target.closest("[data-more]")) return openList();
-  if (e.target.closest("#dateAdd")) return openAddForm();
   if (e.target.closest("#agenda, #dayEvents, #dateText, #clock")) return openAgenda();
   const evId = e.target.closest("[data-ev]")?.dataset.ev;
   if (evId) return openEvent(evId);
