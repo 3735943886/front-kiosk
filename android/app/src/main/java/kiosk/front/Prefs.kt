@@ -41,6 +41,11 @@ object Prefs {
     // url 은 비밀 iCal 주소라 기기에만 둔다. 설정: PUT /api/calendars
     var calendarsJson: String get() = str("calendars", "[]"); set(v) = put("calendars", v)
 
+    // Google Apps Script 웹 앱 (gas/Code.gs): 일정 읽기·쓰기. 주소와 토큰은 기기에만. 설정: PUT /api/gas
+    var gasUrl: String get() = str("gasUrl", ""); set(v) = put("gasUrl", v)
+    var gasToken: String get() = str("gasToken", ""); set(v) = put("gasToken", v)
+    val gasReady get() = gasUrl.isNotBlank() && gasToken.isNotBlank()
+
     /** 웹 쪽 CONFIG 에 합쳐질 값 */
     fun webConfig(): String = JSONObject().apply {
         if (place.isNotBlank()) put("place", place)

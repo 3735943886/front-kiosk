@@ -247,6 +247,33 @@ body.night #fx { opacity: .45; }
 .ev.now .t { color: var(--lamp); }
 .ev-empty { color: var(--dim); font-size: 16px; padding: 8px 0; }
 
+/* 일정 추가 */
+.form { display: flex; flex-direction: column; gap: 12px; }
+.f-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; align-items: center; font-size: 15px; color: var(--dim); }
+.form input[type="text"], .form input[type="date"], .form input[type="time"] {
+  font: inherit; font-size: 18px; color: var(--fg); background: var(--surface-2);
+  border: 1px solid var(--faint); border-radius: 10px; padding: 8px 12px; min-height: 48px; width: 100%;
+  color-scheme: dark; user-select: text;
+}
+.form input:focus { outline: 2px solid var(--lamp); outline-offset: 1px; }
+.times { display: flex; align-items: center; gap: 8px; color: var(--dim); }
+.times input { flex: 1; min-width: 0; }
+#f-endwrap { display: flex; align-items: center; gap: 8px; flex: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chips input[type="date"] { width: auto; flex: 1 1 140px; }
+.chip {
+  min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--faint);
+  background: var(--surface-2); font-size: 16px; cursor: pointer;
+}
+.chip.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.chk {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
+  border: 1px solid var(--faint); border-radius: 999px; font-size: 16px; color: var(--fg); cursor: pointer;
+}
+.chk input { width: 20px; height: 20px; accent-color: var(--lamp); }
+.f-msg { margin: 0; min-height: 1.2em; color: var(--urgent); font-size: 15px; }
+.btn:disabled { opacity: .5; }
+
 /* ---------- night ---------- */
 body.night #float { opacity: .4; }
 body.night .wx-hours { display: none; }
@@ -320,6 +347,8 @@ const CONFIG = {
   agendaRemindMin: null,                        // 일정 기본 미리 알림(분). 일정별 remindBeforeMin이 우선
   pointMaxMin: 15,                              // 이 길이 이하 일정은 "그 시각" 일정(등원·하원)으로 취급
   allDayRemind: { start: 8, end: 12 },          // 종일 일정 #알림: 그날 이 시간대에 한 번
+  quickTitles: ["등원", "하원", "학원", "병원", "외식"],   // 일정 추가 화면의 빠른 제목
+  pointTitles: ["등원", "하원"],                // 이 제목은 "그 시각만" 자동 체크
 };
 const SOURCES = {
   delivery: { label: "배달", icon: "bag" },
@@ -776,7 +805,8 @@ let lastTouch = Date.now();
 function touched() { lastTouch = Date.now(); }
 ["pointerdown", "keydown", "wheel", "touchmove"].forEach((ev) => document.addEventListener(ev, touched, { passive: true, capture: true }));
 function idleCheck() {
-  if (Date.now() - lastTouch < CONFIG.idleResetSec * 1000) return;
+  const limit = $("#addForm") ? 120 : CONFIG.idleResetSec;   // 입력 중엔 넉넉하게 (시간 선택 창 등)
+  if (Date.now() - lastTouch < limit * 1000) return;
   if (!$("#sheet").hidden) closeSheet();
   if (!$("#demo").hidden) $("#demo").hidden = true;
 }
@@ -849,17 +879,44 @@ function normEvent(e) {
 const evTime = (e) => (e.allDay ? "종일" : e.point ? hhmm(e.s) : `${hhmm(e.s)} ~ ${hhmm(e.e)}`);
 let agendaRaw = store.get("kiosk.agenda", []);      // API(PUT /api/agenda)로 받은 일정
 let calItems = store.get("kiosk.calItems", []);     // 캘린더(ICS)에서 펼친 오늘·내일 일정 (마지막 동기화 결과)
+let gasItems = store.get("kiosk.gasItems", []);     // Apps Script 웹 앱에서 받은 일정 (반영이 빠름)
 const calStore = {};                                // 캘린더 이름 → { cfg, evs }
-let agenda = agendaRaw.concat(calItems).map(normEvent).filter(Boolean).sort((a, b) => a.s - b.s);
+// 같은 일정이 Apps Script 와 iCal 양쪽에서 오면 Apps Script 것만 (uid + 시작 시각 기준)
+function mergeSources() {
+  const seen = new Set();
+  return gasItems.concat(calItems, agendaRaw).filter((e) => {
+    if (!e.uid) return true;
+    const k = `${e.uid}|${typeof e.start === "number" ? e.start : parseWhen(e.start)}`;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  }).map(normEvent).filter(Boolean).sort((a, b) => a.s - b.s);
+}
+let agenda = mergeSources();
 function rebuildAgenda() {
   if (Object.keys(calStore).length && window.ICS) {
     const from = dayStart(Date.now()), to = dayStart(Date.now(), 2);
     calItems = Object.values(calStore).flatMap(({ cfg, evs }) => ICS.toAgenda(evs, cfg, from, to));
     store.set("kiosk.calItems", calItems);
   }
-  agenda = agendaRaw.concat(calItems).map(normEvent).filter(Boolean).sort((a, b) => a.s - b.s);
+  agenda = mergeSources();
   agendaSig = "";
   renderAgenda();
+}
+/* Apps Script 웹 앱이 준 일정(이미 펼쳐진 것): { uid, title, start, end, allDay, location, description, calendar, color } */
+function loadEvents(source, list) {
+  const arr = typeof list === "string" ? JSON.parse(list) : list || [];
+  gasItems = arr.map((ev) => {
+    const tags = window.ICS ? ICS.parseTags(ev.title, ev.description) : { title: ev.title, note: ev.description || "" };
+    return {
+      id: `${source}:${ev.uid}:${ev.start}`, uid: ev.uid, title: tags.title || "(제목 없음)",
+      start: ev.start, end: ev.end, allDay: !!ev.allDay, location: ev.location || "", note: tags.note,
+      calendar: ev.calendar || "", color: ev.color || undefined,
+      remind: tags.remind || null, speakText: tags.speak || undefined,
+    };
+  });
+  store.set("kiosk.gasItems", gasItems);
+  rebuildAgenda();
+  return gasItems.length;
 }
 function setAgenda(items) {
   agendaRaw = typeof items === "string" ? JSON.parse(items) : items || [];
@@ -987,7 +1044,97 @@ function openAgenda() {
   sheetShow(`<h2 class="sh-title">가족 일정${demo}</h2>
     ${sec(`오늘 · ${day(d0)}`, eventsOn(0))}
     ${sec(`내일 · ${day(d1)}`, eventsOn(1))}
-    <div class="sh-actions"><button type="button" class="btn primary" data-act="close">닫기</button></div>`);
+    <div class="sh-actions">
+      ${canAddEvent() ? '<button type="button" class="btn" data-act="add">＋ 일정 추가</button>' : ""}
+      <button type="button" class="btn primary" data-act="close">닫기</button>
+    </div>`);
+}
+
+/* ---------- 일정 추가 (Apps Script 웹 앱 → 가족 캘린더) ---------- */
+const canAddEvent = () => !native || !!native.canAddEvent?.();
+const addPending = {};
+function openAddForm() {
+  openSheetId = null;
+  const now = new Date(), s0 = new Date(Math.ceil(now.getTime() / 1800e3) * 1800e3), e0 = new Date(s0.getTime() + 3600e3);
+  const hm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const chk = (id, label, val = "") => `<label class="chk"><input type="checkbox" id="${id}" ${val}> ${label}</label>`;
+  sheetShow(`<h2 class="sh-title">일정 추가</h2>
+    <form id="addForm" class="form" autocomplete="off">
+      <div class="f-row"><span>제목</span><input type="text" id="f-title" maxlength="60" placeholder="예: 학원"></div>
+      <div class="f-row"><span></span><div class="chips">${CONFIG.quickTitles.map((t) => `<button type="button" class="chip" data-qt="${esc(t)}">${esc(t)}</button>`).join("")}</div></div>
+      <div class="f-row"><span>날짜</span><div class="chips" id="f-days">
+        <button type="button" class="chip on" data-day="0">오늘</button><button type="button" class="chip" data-day="1">내일</button><button type="button" class="chip" data-day="2">모레</button>
+        <input type="date" id="f-date" aria-label="날짜 선택"></div></div>
+      <div class="f-row" id="f-timerow"><span>시간</span><div class="times">
+        <input type="time" id="f-start" value="${hm(s0)}"><span id="f-endwrap">~ <input type="time" id="f-end" value="${hm(e0)}"></span></div></div>
+      <div class="f-row"><span></span><div class="chips">${chk("f-allday", "종일")}${chk("f-point", "그 시각만 (등원·하원처럼)")}</div></div>
+      <div class="f-row"><span>음성</span><div class="chips">${[30, 10, 5].map((m) => `<label class="chk"><input type="checkbox" name="f-rm" value="${m}"> ${m}분 전</label>`).join("")}</div></div>
+      <div class="f-row"><span>멘트</span><input type="text" id="f-say" maxlength="80" placeholder="음성 뒤에 덧붙일 말 (예: 가방 챙기세요)"></div>
+      <p class="f-msg" id="f-msg" role="alert"></p>
+      <div class="sh-actions"><button type="button" class="btn" data-act="agenda">취소</button><button type="submit" class="btn primary" id="f-submit">추가</button></div>
+    </form>`);
+  const f = $("#addForm");
+  let dayOff = 0;
+  const sync = () => {
+    const all = $("#f-allday").checked, point = $("#f-point").checked;
+    $("#f-timerow").hidden = all;
+    $("#f-endwrap").hidden = point;
+    $("#f-point").closest(".chk").hidden = all;
+  };
+  f.addEventListener("click", (e) => {
+    const qt = e.target.closest("[data-qt]")?.dataset.qt;
+    if (qt) { $("#f-title").value = qt; $("#f-point").checked = CONFIG.pointTitles.includes(qt); sync(); }
+    const d = e.target.closest("[data-day]");
+    if (d) { dayOff = +d.dataset.day; $("#f-date").value = ""; f.querySelectorAll("[data-day]").forEach((b) => b.classList.toggle("on", b === d)); }
+  });
+  $("#f-date").addEventListener("change", () => { if ($("#f-date").value) { dayOff = null; f.querySelectorAll("[data-day]").forEach((b) => b.classList.remove("on")); } });
+  f.addEventListener("change", sync);
+  f.addEventListener("submit", (e) => { e.preventDefault(); submitAdd(dayOff); });
+  sync();
+}
+function submitAdd(dayOff) {
+  const msg = (t) => ($("#f-msg").textContent = t);
+  const title = $("#f-title").value.trim();
+  if (!title) return msg("제목을 입력해 주세요.");
+  let base;
+  if (dayOff === null) { const [y, m, d] = $("#f-date").value.split("-").map(Number); base = new Date(y, m - 1, d); }
+  else base = new Date(dayStart(Date.now(), dayOff));
+  const all = $("#f-allday").checked, point = $("#f-point").checked;
+  const at = (v) => { const [h, mi] = (v || "0:0").split(":").map(Number); const d = new Date(base); d.setHours(h, mi, 0, 0); return d.getTime(); };
+  let start, end;
+  if (all) { start = base.getTime(); end = dayStart(start, 1); }
+  else {
+    start = at($("#f-start").value);
+    end = point ? start + 10 * 60e3 : at($("#f-end").value);   // "그 시각만": 10분 일정 → 화면에선 그 시각 일정으로
+    if (end <= start) return msg("끝나는 시간이 시작 시간보다 늦어야 해요.");
+  }
+  const rms = [...document.querySelectorAll('input[name="f-rm"]:checked')].map((i) => +i.value);
+  const say = $("#f-say").value.trim();
+  const description = [rms.length ? `#알림 ${rms.join(",")}` : "", say ? `#멘트 ${say}` : ""].filter(Boolean).join("\n");
+  const ev = { title, start, end, allDay: all, description };
+  if (!native?.addEvent) { // 미리보기: 이 화면에만
+    setAgenda(agendaRaw.concat([{ ...ev, demo: true, remind: rms.length ? rms : null, speakText: say || undefined }]));
+    closeSheet();
+    return flash({ title: "미리보기라 이 화면에만 추가했어요", level: "ok", icon: "check" });
+  }
+  const id = `r${Date.now()}`;
+  addPending[id] = true;
+  $("#f-submit").disabled = true;
+  msg("");
+  $("#f-submit").textContent = "추가하는 중…";
+  native.addEvent(id, JSON.stringify(ev));
+}
+function onAddResult(id, res) {
+  if (!addPending[id]) return;
+  delete addPending[id];
+  if (res?.ok) {
+    closeSheet();
+    flash({ title: `${res.calendar || "가족"} 캘린더에 추가했어요`, level: "ok", icon: "check" });
+  } else if ($("#addForm")) {
+    $("#f-submit").disabled = false;
+    $("#f-submit").textContent = "추가";
+    $("#f-msg").textContent = `추가하지 못했어요: ${res?.error || "알 수 없는 오류"}`;
+  }
 }
 function openEvent(id) {
   const e = agenda.find((x) => x.id === id); if (!e) return;
@@ -1068,6 +1215,7 @@ function onActivate(e) {
   const act = e.target.closest("[data-act]")?.dataset.act;
   if (act === "close") return closeSheet();
   if (act === "agenda") return openAgenda();
+  if (act === "add") return openAddForm();
   if (act === "clear") return clearAll();
   if (act === "dismiss") return dismiss(openSheetId);
   if (act === "say") { const n = notifs.get(openSheetId); return n && speak(speechOf(n), n.level, true); }
@@ -1148,7 +1296,7 @@ function ingestAndroid(raw) {
 }
 
 /* ================= public API for native shell / scripts ================= */
-window.kiosk = { notify, dismiss, snooze, clear: clearAll, list: () => visible(), setAgenda, agenda: () => agenda, ingestAndroid, loadIcs, setCalendars };
+window.kiosk = { notify, dismiss, snooze, clear: clearAll, list: () => visible(), setAgenda, agenda: () => agenda, ingestAndroid, loadIcs, setCalendars, loadEvents, onAddResult };
 
 /* ================= demo ================= */
 const DELIVERY_STEPS = ["주문 접수", "조리 중", "배달 출발", "배달 완료"];

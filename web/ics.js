@@ -223,7 +223,7 @@
     return expand(evs, from, to).map((o) => {
       const tags = parseTags(o.title, o.description);
       return {
-        id: `${cal.name || "cal"}:${o.uid}:${o.start}`,
+        id: `${cal.name || "cal"}:${o.uid}:${o.start}`, uid: o.uid,
         title: tags.title || "(제목 없음)",
         start: o.start, end: o.end, allDay: o.allDay,
         location: o.location, note: tags.note,

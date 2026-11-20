@@ -4,6 +4,7 @@
 시계·날씨·가족 일정·알림 카드를 한 화면에 띄우고, 다른 앱의 푸시(배달 앱 등)를 읽어 카드로 바꿔 보여준다.
 
 - **web/index.html** — 대시보드 UI 전체 (HTML/CSS/JS 한 파일). 브라우저에서 바로 열어 데모 패널로 확인할 수 있다.
+- **gas/** — 가족 캘린더 읽기·쓰기용 Google Apps Script 웹 앱
 - **android/** — UI를 감싸는 얇은 Android 앱 (Kotlin, minSdk 30)
   - WebView로 `web/` 을 띄움 (앱 assets 로 포함)
   - 디바이스 오너 + 잠금 작업 모드: 알림창·빠른 설정·홈/최근 앱 제스처·전원 메뉴·다른 앱 알림 팝업 차단
@@ -65,6 +66,8 @@ adb logcat -d -s Kiosk | grep token                       # API 토큰 확인
 | `GET /api/android-notifications` | 최근 받은 다른 앱 알림 원본 (파서 작성용) |
 | `PUT /api/config` | `place` `lat` `lon` `pin` `watch` `consume` `url` |
 | `POST /api/reload` | 화면 새로고침 |
+| `PUT /api/calendars` · `GET` · `POST …/sync` | iCal 구독 캘린더 |
+| `PUT /api/gas` · `GET` · `POST …/sync` | Apps Script 웹 앱 (일정 읽기·쓰기) |
 | `GET /api/health` | 상태 (인증 없음) |
 
 ### 알림 형식
@@ -118,6 +121,25 @@ curl -X PUT http://<device-ip>:8080/api/calendars -H "Authorization: Bearer $TOK
 종료 시간이 없거나 15분 이하인 일정(등원·하원 등)은 "그 시각" 일정으로 취급해 시작 10분 뒤 다음 일정으로 넘어간다.
 
 종일 일정은 날짜 옆에 붙는다 (공휴일은 날짜가 빨갛게, 여러 날 일정은 "2/3일"). 종일 일정에 `#알림` 을 달면 그날 아침 8~12시 사이에 한 번 알린다.
+
+### 일정 추가·빠른 반영 (Google Apps Script)
+
+iCal 비공개 주소는 읽기 전용이고 Google 쪽 반영이 몇 분~몇 시간 늦다. 캘린더 주인 계정에 작은 웹 앱(`gas/Code.gs`)을 배포하면
+키오스크가 2분마다 일정을 바로 받아오고, 화면에서 일정을 추가할 수 있다 (일정 목록 → ＋ 일정 추가).
+
+1. script.google.com → 새 프로젝트 → `gas/Code.gs` 내용을 붙여넣고 저장
+2. 프로젝트 설정 → 시간대 `(GMT+09:00) 서울`
+3. 함수 `setup` 실행 → 권한 허용 → 실행 로그의 `TOKEN` 복사 (기본으로 "가족" 캘린더를 읽고 씀)
+4. 배포 → 새 배포 → 웹 앱, 실행 사용자 "나", 액세스 "모든 사용자" → 웹 앱 URL 복사
+5. 키오스크에 등록 (URL·토큰은 기기에만 저장됨):
+
+```sh
+curl -X PUT http://<device-ip>:8080/api/gas -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"url":"<웹 앱 URL>","token":"<setup 이 만든 TOKEN>"}'
+curl http://<device-ip>:8080/api/gas -H "Authorization: Bearer $TOKEN"   # status.ok 확인
+```
+
+iCal 과 웹 앱 양쪽에 같은 일정이 있으면 하나만 보인다. 화면에서 고른 음성 알림·멘트는 일정 설명에 `#알림` `#멘트` 태그로 저장되어 폰에서도 그대로 보인다.
 
 ### 일정 형식 (API로 직접 넣을 때)
 

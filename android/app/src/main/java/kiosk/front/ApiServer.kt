@@ -20,6 +20,9 @@ import org.json.JSONTokener
  *   PUT    /api/calendars           구독 캘린더 목록 교체: 항목마다 name, url, color, remind (url 은 기기에만 저장)
  *   GET    /api/calendars           구독 캘린더 목록(url 대신 host)과 마지막 동기화 결과
  *   POST   /api/calendars/sync      지금 동기화
+ *   PUT    /api/gas                 {"url","token"} Apps Script 웹 앱 (일정 읽기·쓰기) 등록
+ *   GET    /api/gas                 설정 여부와 마지막 동기화 결과
+ *   POST   /api/gas/sync            지금 동기화
  */
 class ApiServer(port: Int) : NanoHTTPD(port) {
 
@@ -100,6 +103,18 @@ class ApiServer(port: Int) : NanoHTTPD(port) {
             m == Method.GET && path == "/api/calendars" ->
                 json(Response.Status.OK, ok().put("calendars", CalendarSync.publicList()).put("status", CalendarSync.status))
             m == Method.POST && path == "/api/calendars/sync" -> { CalendarSync.now(); json(Response.Status.OK, ok()) }
+            m == Method.PUT && path == "/api/gas" -> {
+                val o = JSONObject(body)
+                val u = o.optString("url").trim()
+                val t = o.optString("token").trim()
+                require(u.isEmpty() || u.startsWith("https://script.google.com/")) { "url must be a script.google.com web app URL" }
+                Prefs.gasUrl = u; Prefs.gasToken = t
+                GasSync.now()
+                json(Response.Status.OK, ok().put("configured", Prefs.gasReady))
+            }
+            m == Method.GET && path == "/api/gas" ->
+                json(Response.Status.OK, ok().put("configured", Prefs.gasReady).put("status", GasSync.status))
+            m == Method.POST && path == "/api/gas/sync" -> { GasSync.now(); json(Response.Status.OK, ok()) }
             else -> json(Response.Status.NOT_FOUND, JSONObject().put("error", "not found: $m $path"))
         }
     }

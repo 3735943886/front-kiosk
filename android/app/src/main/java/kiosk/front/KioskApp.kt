@@ -13,6 +13,7 @@ class KioskApp : Application() {
         Hub.init(this)
         ApiServer.startDefault()
         CalendarSync.start()
+        GasSync.start()
         Log.i(TAG, "API port ${Prefs.port}, token ${Prefs.token}")
     }
 }

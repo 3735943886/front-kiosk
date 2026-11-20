@@ -174,6 +174,7 @@ class MainActivity : Activity() {
         override fun onPageFinished(view: WebView, url: String) {
             Hub.pageReady()
             CalendarSync.now() // 페이지가 새로 뜨면 캘린더를 다시 넘겨준다
+            GasSync.now()
         }
 
         /** WebView 렌더러가 죽으면 화면을 다시 만든다 */
@@ -190,6 +191,14 @@ class MainActivity : Activity() {
     private inner class Bridge {
         @JavascriptInterface fun speak(text: String) = Hub.speak(text)
         @JavascriptInterface fun config(): String = Prefs.webConfig()
+        @JavascriptInterface fun canAddEvent(): Boolean = Prefs.gasReady
+        /** 일정 추가 → 끝나면 kiosk.onAddResult(reqId, 결과) */
+        @JavascriptInterface fun addEvent(reqId: String, json: String) {
+            val ev = try { org.json.JSONObject(json) } catch (e: Exception) {
+                Hub.js("kiosk.onAddResult(${org.json.JSONObject.quote(reqId)}, {ok:false, error:'bad request'})"); return
+            }
+            GasSync.add(ev) { res -> Hub.js("kiosk.onAddResult(${org.json.JSONObject.quote(reqId)}, $res)") }
+        }
         @JavascriptInterface fun action(name: String, args: String) {
             Log.i(TAG, "action $name $args")
             when (name) {
