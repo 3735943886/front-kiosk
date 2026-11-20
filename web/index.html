@@ -74,6 +74,7 @@ body.night #fx { opacity: .45; }
   transition-timing-function: ease-in-out;
 }
 .clock {
+  width: max-content;
   font-family: var(--f-clock);
   font-weight: 200;
   font-size: min(31vw, 21vh);
@@ -93,11 +94,17 @@ body.night #fx { opacity: .45; }
   font-size: min(4.8vw, 3vh); color: var(--fg); max-width: 100%;
 }
 .agenda .bar { width: 4px; align-self: stretch; border-radius: 2px; background: var(--ec, var(--lamp)); flex: none; }
-.agenda .when { font-variant-numeric: tabular-nums; font-weight: 500; flex: none; }
-.agenda .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.agenda .more-ev, .agenda .chev { color: var(--dim); flex: none; }
+/* 오늘 남은 일정을 한 줄로: 다음 일정은 진하게, 그 뒤는 흐리게, 넘치면 "외 N건" */
+.agenda .its { display: flex; gap: .55em; min-width: 0; overflow: hidden; white-space: nowrap; }
+.agenda .it { flex: none; color: var(--dim); }
+.agenda .it + .it::before { content: "·"; margin-right: .55em; color: var(--dim); }
+.agenda .it .t { font-weight: 500; font-variant-numeric: tabular-nums; }
+.agenda .it.next { color: var(--fg); }
+.agenda .it.live .t { color: var(--lamp); }
+.agenda .it.solo { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.agenda .pre, .agenda .more-ev, .agenda .chev { color: var(--dim); flex: none; }
 .agenda .chev { font-size: 1.2em; line-height: 1; }
-.agenda.later { color: var(--dim); }
+.agenda.later .it.next { color: var(--dim); }
 /* 공간이 모자라면 덜 중요한 것부터 숨김: 시간별 예보 → 날씨 설명 → 일정 줄 */
 #float.c1 .wx-hours, #float.c2 .wx-hours, #float.c3 .wx-hours { display: none; }
 #float.c2 .wx-desc, #float.c3 .wx-desc { display: none; }
@@ -803,12 +810,18 @@ const parseWhen = (v) => {
 };
 const dayStart = (ts, add = 0) => { const d = new Date(ts); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + add); return d.getTime(); };
 const hhmm = (ts) => { const d = new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+// 종료 시간이 없거나 시작과 같으면 "그 시각에 일어나는 일정"(등원·하원 등):
+// 진행 중 표시 없이, 시작 후 POINT_GRACE 동안만 남아 있다가 다음 일정으로 넘어간다.
+const POINT_GRACE = 10 * 60e3;
 function normEvent(e) {
   const s = parseWhen(e.start); if (isNaN(s)) return null;
   let en = e.end != null ? parseWhen(e.end) : NaN;
-  if (isNaN(en)) en = e.allDay ? dayStart(s, 1) : s + 3600e3;
-  return { ...e, id: String(e.id || `${e.title}-${s}`), s, e: en };
+  const point = !e.allDay && (isNaN(en) || en <= s);
+  if (point) en = s;
+  else if (isNaN(en)) en = dayStart(s, 1);
+  return { ...e, id: String(e.id || `${e.title}-${s}`), s, e: en, point, until: point ? s + POINT_GRACE : en };
 }
+const evTime = (e) => (e.allDay ? "종일" : e.point ? hhmm(e.s) : `${hhmm(e.s)} ~ ${hhmm(e.e)}`);
 let agendaRaw = store.get("kiosk.agenda", []);
 let agenda = agendaRaw.map(normEvent).filter(Boolean).sort((a, b) => a.s - b.s);
 function setAgenda(items) {
@@ -819,36 +832,59 @@ function setAgenda(items) {
 }
 const eventsOn = (dayOffset) => {
   const a = dayStart(Date.now(), dayOffset), b = dayStart(Date.now(), dayOffset + 1);
-  return agenda.filter((e) => e.e > a && e.s < b);
+  return agenda.filter((e) => e.until > a && e.s < b);
 };
 const evColor = (e) => (e.color ? `--ec:${esc(e.color)}` : "");
 
 let agendaSig = "";
 function renderAgenda() {
   const now = Date.now(), today = eventsOn(0);
-  const timed = today.filter((e) => !e.allDay && e.e > now), allDay = today.filter((e) => e.allDay);
-  let main, label, others, later = false;
-  if (timed.length) { main = timed[0]; label = main.s <= now ? "진행 중" : hhmm(main.s); others = timed.length - 1 + allDay.length; }
-  else if (allDay.length) { main = allDay[0]; label = "종일"; others = allDay.length - 1; }
-  else {
+  // 오늘 남은 시간 일정 → 종일 일정 순. 오늘 것이 없으면 내일 일정을 흐리게.
+  let list = today.filter((e) => !e.allDay && e.until > now).concat(today.filter((e) => e.allDay));
+  let later = false;
+  if (!list.length) {
     const tm = eventsOn(1);
-    if (tm.length) { main = tm[0]; label = `내일 ${main.allDay ? "종일" : hhmm(main.s)}`; others = tm.length - 1; later = true; }
+    list = tm.filter((e) => !e.allDay).concat(tm.filter((e) => e.allDay));
+    later = list.length > 0;
   }
+  const item = (e, i) => {
+    const live = !e.allDay && !e.point && e.s <= now;
+    const t = e.allDay ? "종일" : live ? `~${hhmm(e.e)}` : hhmm(e.s);
+    return `<span class="it${i === 0 ? " next" : ""}${live ? " live" : ""}"><span class="t">${t}</span> ${esc(e.title)}</span>`;
+  };
   const el = $("#agenda");
-  const html = main ? `<span class="bar"></span><span class="when">${label}</span><span class="what">${esc(main.title)}</span>${others > 0 ? `<span class="more-ev">외 ${others}건</span>` : ""}<span class="chev">›</span>` : "";
-  const sig = html + (main?.color || "") + later;
-  if (sig === agendaSig) return;
-  agendaSig = sig;
-  el.hidden = !main;
-  el.innerHTML = html;
-  el.className = `agenda${later ? " later" : ""}`;
-  el.style.cssText = main ? evColor(main) : "";
+  const html = list.length
+    ? `<span class="bar"></span>${later ? '<span class="pre">내일</span>' : ""}<span class="its">${list.map(item).join("")}</span><span class="more-ev" hidden></span><span class="chev">›</span>`
+    : "";
+  const sig = html + (list[0]?.color || "");
+  if (sig !== agendaSig) {
+    agendaSig = sig;
+    el.hidden = !list.length;
+    el.innerHTML = html;
+    el.className = `agenda${later ? " later" : ""}`;
+    el.style.cssText = list.length ? evColor(list[0]) : "";
+  }
+  fitAgenda();
+}
+/* 시계 폭 안에 들어가는 만큼만 보여주고 나머지는 "외 N건" */
+function fitAgenda() {
+  const el = $("#agenda"); if (el.hidden) return;
+  const zoneW = $("#zone").clientWidth || innerWidth;
+  const ref = Math.max($("#clock").offsetWidth, 340);
+  el.style.maxWidth = `${Math.min(zoneW, ref)}px`;
+  const its = el.querySelector(".its"), items = [...el.querySelectorAll(".it")], more = el.querySelector(".more-ev");
+  for (let k = items.length; k >= 1; k--) {
+    items.forEach((it, i) => { it.hidden = i >= k; it.classList.toggle("solo", k === 1 && i === 0); });
+    more.hidden = k === items.length;
+    more.textContent = `외 ${items.length - k}건`;
+    if (its.scrollWidth <= its.clientWidth + 1) break;
+  }
 }
 
 function evRow(e) {
   const now = Date.now();
-  const cls = e.e <= now ? "past" : e.s <= now ? "now" : "";
-  const t = e.allDay ? "종일" : `${hhmm(e.s)}<small>~${hhmm(e.e)}</small>`;
+  const cls = e.until <= now ? "past" : !e.point && e.s <= now ? "now" : "";
+  const t = e.allDay ? "종일" : e.point ? hhmm(e.s) : `${hhmm(e.s)}<small>~${hhmm(e.e)}</small>`;
   return `<div class="ev ${cls}" role="button" tabindex="0" data-ev="${esc(e.id)}" style="${evColor(e)}">
     <span class="t">${t}</span><span class="b"></span>
     <span><span class="ti">${esc(e.title)}</span>${e.location ? `<span class="lo">${esc(e.location)}</span>` : ""}</span>
@@ -870,8 +906,7 @@ function openEvent(id) {
   const e = agenda.find((x) => x.id === id); if (!e) return;
   openSheetId = null;
   const d = new Date(e.s);
-  const when = e.allDay ? `${d.getMonth() + 1}월 ${d.getDate()}일 (${DAYS[d.getDay()]}) 종일`
-    : `${d.getMonth() + 1}월 ${d.getDate()}일 (${DAYS[d.getDay()]}) ${hhmm(e.s)} ~ ${hhmm(e.e)}`;
+  const when = `${d.getMonth() + 1}월 ${d.getDate()}일 (${DAYS[d.getDay()]}) ${evTime(e)}`;
   const fields = [["언제", when]];
   if (e.location) fields.push(["장소", e.location]);
   if (e.calendar) fields.push(["캘린더", e.calendar]);
@@ -901,8 +936,8 @@ function agendaReminders(now) {
       id: `cal-${e.id}`, source: "calendar", demo: e.demo, icon: "calendar",
       title: `${left}분 뒤 · ${e.title}`, body: `${hhmm(e.s)}${e.location ? ` · ${e.location}` : ""}`,
       speak: `${left}분 뒤에 ${e.title} 일정이 있습니다`,
-      expiresAt: e.e, tap: { type: "detail" },
-      detail: { fields: [["시간", `${hhmm(e.s)} ~ ${hhmm(e.e)}`], ...(e.location ? [["장소", e.location]] : []), ...(e.note ? [["메모", e.note]] : [])] },
+      expiresAt: e.until, tap: { type: "detail" },
+      detail: { fields: [["시간", evTime(e)], ...(e.location ? [["장소", e.location]] : []), ...(e.note ? [["메모", e.note]] : [])] },
     });
   }
   if (dirty) {
@@ -946,6 +981,7 @@ function placeFloat(durSec) {
   if (!zw || !zh) return;
   // 넘치면 덜 중요한 것부터 숨기고, 그래도 넘치면 축소
   fl.classList.remove("c1", "c2", "c3");
+  fitAgenda();
   let fw = fl.offsetWidth, fh = fl.offsetHeight;
   for (const c of ["c1", "c2", "c3"]) {
     if (fw <= zw && fh <= zh) break;
