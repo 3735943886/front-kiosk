@@ -129,7 +129,7 @@ body.night #fx { opacity: .45; }
 .agenda .pre, .agenda .more-ev, .agenda .chev { color: var(--plan-dim); flex: none; }
 .agenda .chev { font-size: 1.2em; line-height: 1; }
 .agenda.later .it.next { color: var(--plan-dim); }
-#dateText { cursor: pointer; }
+#dateText, #clock { cursor: pointer; }
 /* 일정이 하나도 없을 때만 요일 옆에 보이는 추가 버튼 */
 #dateAdd {
   flex: none; align-self: center; width: 1.5em; height: 1.5em; margin-left: .1em;
@@ -1239,7 +1239,7 @@ function onActivate(e) {
   }
   if (e.target.closest("[data-more]")) return openList();
   if (e.target.closest("#dateAdd")) return openAddForm();
-  if (e.target.closest("#agenda, #dayEvents, #dateText")) return openAgenda();
+  if (e.target.closest("#agenda, #dayEvents, #dateText, #clock")) return openAgenda();
   const evId = e.target.closest("[data-ev]")?.dataset.ev;
   if (evId) return openEvent(evId);
   const ai = e.target.closest("[data-ai]")?.dataset.ai;
