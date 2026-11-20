@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- testOnly: 디바이스 오너를 adb로 해제할 수 있게 한다 (dpm remove-active-admin).
+     설치는 adb install -t -r 로 해야 한다. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:testOnly="true" />
+</manifest>

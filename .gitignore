@@ -1,0 +1,16 @@
+# Gradle / Android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+.idea/
+*.iml
+
+# 서명 키와 비밀번호 (GitHub Secrets로만 전달)
+*.keystore
+*.jks
+android/keystore-pass.txt
+
+# 비밀 값 (Google 캘린더 iCal 주소, API 토큰 등은 기기 설정에만)
+secrets/
+*.secret

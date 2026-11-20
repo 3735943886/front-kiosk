@@ -1,0 +1,1119 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Front 대시보드</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600&family=Manrope:wght@200;300;500&display=swap">
+<style>
+/* Layout: screen splits into a clock zone (top, flexible) and a notification dock (bottom, sized by content).
+   The clock+weather block sits centred in its zone, drifts a few px for burn-in, and scales down rather than
+   ever entering the dock. Single dark look by design. */
+:root {
+  --bg: #080b12;        /* page ground */
+  --sky: #13203d;       /* time-of-day glow, set from JS */
+  --fg: #d6d9e0;        /* main text, soft grey instead of white */
+  --dim: #7f879a;       /* secondary text */
+  --faint: #252d3e;     /* hairlines */
+  --surface: #111725;   /* cards */
+  --surface-2: #1a2236; /* pressed / sheet */
+  --lamp: #e9b072;      /* warm accent: current step, focus */
+  --info: #8fb0f5;
+  --warn: #f1c35a;
+  --urgent: #ff7f70;
+  --ok: #7fcfa5;
+  --rain: #9fb3d8;      /* precipitation particles */
+  --snow: #e4e8f0;
+  --f-clock: "Manrope", "IBM Plex Sans KR", system-ui, sans-serif;
+  --f-ui: "IBM Plex Sans KR", "Noto Sans KR", "Apple SD Gothic Neo", system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--f-ui);
+  font-size: 15px;
+  overflow: hidden;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+body::after { /* time-of-day glow */
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(120% 70% at 50% -10%, var(--sky), transparent 70%);
+}
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--lamp); outline-offset: 3px; }
+
+#fx { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; transition: opacity 2s; }
+body.night #fx { opacity: .45; }
+#stage {
+  position: relative; z-index: 1; height: 100%;
+  display: flex; flex-direction: column; gap: 16px;
+  transition: transform 2s ease;
+}
+
+/* ---------- clock zone ---------- */
+#zone { position: relative; flex: 1 1 auto; min-height: 0; }
+#float {
+  position: absolute; left: 0; top: 0;
+  display: flex; flex-direction: column; gap: 14px;
+  width: max-content;
+  transform-origin: 0 0;
+  will-change: transform;
+  transition-property: transform, opacity;
+  transition-timing-function: ease-in-out;
+}
+.clock {
+  font-family: var(--f-clock);
+  font-weight: 200;
+  font-size: min(31vw, 21vh);
+  line-height: .9;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  margin-left: -0.04em;
+}
+.clock .colon { opacity: .55; }
+.date { font-size: min(5.6vw, 3.6vh); color: var(--dim); letter-spacing: .02em; }
+.date b { color: var(--fg); font-weight: 400; }
+
+/* today's agenda: one line inside the drifting block */
+.agenda {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 4px 0;
+  background: none; border: 0; cursor: pointer; text-align: left;
+  font-size: min(4.8vw, 3vh); color: var(--fg); max-width: 100%;
+}
+.agenda .bar { width: 4px; align-self: stretch; border-radius: 2px; background: var(--ec, var(--lamp)); flex: none; }
+.agenda .when { font-variant-numeric: tabular-nums; font-weight: 500; flex: none; }
+.agenda .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.agenda .more-ev, .agenda .chev { color: var(--dim); flex: none; }
+.agenda .chev { font-size: 1.2em; line-height: 1; }
+.agenda.later { color: var(--dim); }
+/* 공간이 모자라면 덜 중요한 것부터 숨김: 시간별 예보 → 날씨 설명 → 일정 줄 */
+#float.c1 .wx-hours, #float.c2 .wx-hours, #float.c3 .wx-hours { display: none; }
+#float.c2 .wx-desc, #float.c3 .wx-desc { display: none; }
+#float.c3 .agenda { display: none; }
+
+.wx { display: flex; flex-direction: column; gap: 14px; }
+.wx-now { display: flex; align-items: center; gap: 14px; }
+.wx-now svg { width: min(15vw, 9.5vh); height: min(15vw, 9.5vh); color: var(--fg); flex: none; }
+.wx-temp { font-family: var(--f-clock); font-weight: 300; font-size: min(14vw, 9vh); line-height: 1; font-variant-numeric: tabular-nums; }
+.wx-temp sup { font-size: .45em; color: var(--dim); vertical-align: .9em; margin-left: 2px; }
+.wx-desc { display: flex; flex-direction: column; gap: 3px; font-size: 15px; color: var(--dim); }
+.wx-desc .cond { color: var(--fg); font-size: 19px; }
+.wx-hours {
+  display: grid; grid-template-columns: repeat(6, 56px); gap: 6px; justify-content: space-between;
+  border-top: 1px solid var(--faint); padding-top: 14px;
+}
+.hr { display: flex; flex-direction: column; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.hr .t { font-size: 13px; color: var(--dim); }
+.hr svg { width: 26px; height: 26px; color: var(--fg); opacity: .85; }
+.hr .v { font-size: 17px; }
+.hr .p { font-size: 13px; color: var(--info); min-height: 1em; }
+.tag {
+  display: inline-block; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim); border: 1px solid var(--faint); border-radius: 4px; padding: 1px 5px; vertical-align: middle;
+}
+
+/* ---------- notification dock ---------- */
+#dock { flex: none; display: flex; flex-direction: column; gap: 8px; }
+#dock:empty { display: none; }
+.lv-info { --lc: var(--info); } .lv-warn { --lc: var(--warn); } .lv-urgent { --lc: var(--urgent); } .lv-ok { --lc: var(--ok); }
+.ico {
+  width: 52px; height: 52px; border-radius: 13px; display: grid; place-items: center; flex: none;
+  background: color-mix(in srgb, var(--lc) 16%, transparent); color: var(--lc);
+}
+.ico svg { width: 28px; height: 28px; }
+.ico.sm { width: 36px; height: 36px; border-radius: 10px; }
+.ico.sm svg { width: 20px; height: 20px; }
+
+.card {
+  display: grid; grid-template-columns: 52px 1fr auto; gap: 14px; align-items: start;
+  text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--faint); border-radius: 16px;
+  padding: 16px;
+}
+.card:active, .row:active { background: var(--surface-2); }
+.card.lv-urgent, .row.lv-urgent { border-color: color-mix(in srgb, var(--urgent) 60%, var(--faint)); }
+.c-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.c-meta { font-size: 14px; color: var(--dim); display: flex; gap: 7px; align-items: center; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lc); flex: none; }
+.lv-urgent .dot { animation: pulse 1.6s ease-in-out infinite; }
+.c-title { font-size: 21px; font-weight: 500; line-height: 1.3; }
+.c-body { font-size: 16px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-html { font-size: 16px; line-height: 1.4; min-width: 0; overflow: hidden; max-height: 9em; }
+.chev { color: var(--dim); font-size: 28px; line-height: 52px; }
+
+.row {
+  display: grid; grid-template-columns: 36px 1fr auto auto; gap: 12px; align-items: center;
+  cursor: pointer; background: var(--surface); border: 1px solid var(--faint); border-radius: 12px;
+  padding: 9px 14px 9px 10px;
+}
+.r-title { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.r-title small { color: var(--dim); font-size: 14px; margin-left: 6px; }
+.r-time { font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.row .chev { font-size: 22px; line-height: 1; }
+.more { align-self: center; background: none; border: 1px solid var(--faint); border-radius: 999px; color: var(--dim); padding: 8px 18px; font-size: 15px; cursor: pointer; }
+
+.steps { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 5px; margin-top: 8px; }
+.step { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--dim); }
+.step i { display: block; height: 4px; border-radius: 2px; background: var(--faint); }
+.step.done i { background: color-mix(in srgb, var(--lamp) 55%, var(--faint)); }
+.step.now i { background: var(--lamp); }
+.step.now { color: var(--fg); }
+
+/* ---------- toast ---------- */
+#toast {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 5;
+  display: grid; grid-template-columns: 52px 1fr; gap: 14px; align-items: center;
+  background: var(--surface-2); border: 1px solid var(--faint); border-radius: 16px; padding: 16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  transform: translateY(calc(-100% - 80px)); visibility: hidden;
+  transition: transform .45s cubic-bezier(.2,.8,.2,1), visibility 0s .45s;
+}
+#toast.show { transform: translateY(0); visibility: visible; transition-delay: 0s; }
+#toast .c-title { font-size: 22px; }
+
+/* ---------- detail sheet ---------- */
+#sheet { position: fixed; inset: 0; z-index: 10; display: flex; align-items: flex-end; background: rgba(4,6,10,.72); animation: fade .25s ease both; }
+.sheet-in {
+  width: 100%; max-height: 88%; overflow-y: auto;
+  background: var(--surface); border-top: 1px solid var(--faint); border-radius: 20px 20px 0 0;
+  padding: 22px max(20px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+  display: flex; flex-direction: column; gap: 16px;
+  animation: rise .3s ease both;
+}
+.sh-head { display: flex; gap: 12px; align-items: center; }
+.sh-title { font-size: 26px; font-weight: 500; text-wrap: balance; margin: 0; }
+.sh-body { font-size: 17px; color: var(--fg); line-height: 1.6; margin: 0; white-space: pre-wrap; }
+.sh-html { font-size: 17px; line-height: 1.6; overflow-wrap: anywhere; }
+.sh-fields { display: grid; grid-template-columns: max-content 1fr; gap: 10px 20px; margin: 0; font-size: 17px; }
+.sh-fields dt { color: var(--dim); }
+.sh-fields dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.sh-frame { width: 100%; height: 60vh; border: 1px solid var(--faint); border-radius: 12px; background: #000; }
+.sh-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { flex: 1 1 auto; min-height: 56px; border-radius: 14px; border: 1px solid var(--faint); background: var(--surface-2); cursor: pointer; padding: 0 18px; font-size: 17px; }
+.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 500; }
+.btn.danger { border-color: var(--urgent); color: var(--urgent); }
+.sh-list { display: flex; flex-direction: column; gap: 8px; }
+.ev-day { font-size: 14px; color: var(--dim); letter-spacing: .04em; margin: 4px 0 -8px; }
+.ev-list { display: flex; flex-direction: column; }
+.ev {
+  display: grid; grid-template-columns: 62px 4px 1fr auto; gap: 12px; align-items: center;
+  padding: 12px 2px; border-bottom: 1px solid var(--faint); cursor: pointer;
+}
+.ev:last-child { border-bottom: 0; }
+.ev:active { background: var(--surface-2); }
+.ev .t { font-size: 16px; font-variant-numeric: tabular-nums; }
+.ev .t small { display: block; font-size: 13px; color: var(--dim); }
+.ev .b { width: 4px; align-self: stretch; min-height: 34px; border-radius: 2px; background: var(--ec, var(--lamp)); }
+.ev .ti { font-size: 18px; display: block; }
+.ev .lo { font-size: 14px; color: var(--dim); display: block; }
+.ev .chev { font-size: 22px; line-height: 1; color: var(--dim); }
+.ev.past { opacity: .45; }
+.ev.now .t { color: var(--lamp); }
+.ev-empty { color: var(--dim); font-size: 16px; padding: 8px 0; }
+
+/* ---------- night ---------- */
+body.night #float { opacity: .4; }
+body.night .wx-hours { display: none; }
+body.night #dock { opacity: .75; }
+
+/* ---------- demo controls (hidden when native shell is present) ---------- */
+#demoBtn { position: absolute; right: 0; top: 0; z-index: 6; background: none; border: 1px solid var(--faint); border-radius: 8px; color: var(--dim); font-size: 12px; padding: 4px 10px; cursor: pointer; opacity: .6; }
+#demo { position: absolute; right: 0; top: 34px; z-index: 6; width: min(270px, 100%); max-height: calc(100% - 40px); overflow-y: auto; display: flex; flex-direction: column; gap: 6px; background: var(--surface-2); border: 1px solid var(--faint); border-radius: 12px; padding: 10px; }
+#demo button { text-align: left; background: var(--surface); border: 1px solid var(--faint); border-radius: 8px; padding: 9px 10px; font-size: 13px; cursor: pointer; }
+#demo p { margin: 2px 2px 4px; font-size: 11px; color: var(--dim); }
+
+@keyframes rise { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes pulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; }
+  #float { transition-duration: 0s !important; }
+}
+</style>
+</head>
+<body>
+<canvas id="fx" aria-hidden="true"></canvas>
+<main id="stage">
+  <section id="zone">
+    <div id="float" aria-label="시계와 날씨">
+      <div>
+        <div class="clock" id="clock">--<span class="colon">:</span>--</div>
+        <div class="date" id="date"></div>
+        <button type="button" class="agenda" id="agenda" hidden></button>
+      </div>
+      <div class="wx" id="wx"></div>
+    </div>
+  </section>
+
+  <section id="dock" aria-label="알림"></section>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <button id="demoBtn" type="button" hidden>데모</button>
+  <div id="demo" hidden>
+    <p>예시 알림으로 화면 동작을 확인하는 패널입니다. 기기 앱에서는 숨겨집니다.</p>
+    <button type="button" id="dm-delivery">배달 진행: 다음 단계</button>
+    <button type="button" id="dm-fridge">냉장고 문 열림 (1분마다 반복)</button>
+    <button type="button" id="dm-html">HTML 카드 (분리수거)</button>
+    <button type="button" id="dm-info">일반 알림</button>
+    <button type="button" id="dm-urgent">긴급 알림</button>
+    <button type="button" id="dm-cal">일정 미리 알림 시험 (30분 전)</button>
+    <button type="button" id="dm-fx">배경 날씨 효과: 자동</button>
+    <button type="button" id="dm-night">야간 모드 켜기/끄기</button>
+    <button type="button" id="dm-clear">알림 모두 지우기</button>
+  </div>
+</main>
+
+<div id="sheet" hidden></div>
+
+<script>
+"use strict";
+/* ================= config ================= */
+const CONFIG = {
+  place: "서울", lat: 37.5665, lon: 126.978,    // 기본값. 실제 위치는 기기 설정(place/lat/lon)이 덮어씀
+  weatherRefreshMin: 15,
+  driftPx: 20,                                  // 시계가 중심에서 움직이는 최대 거리
+  driftEverySec: 150, driftDurationSec: 110,    // 이동 주기 / 한 번 이동에 걸리는 시간
+  pixelShiftSec: 60,                            // 전체 화면 ±2px 미세 이동
+  night: { start: 0, end: 6 },                  // 화면을 어둡게 하는 시간
+  quiet: { start: 22, end: 8 },                 // 이 시간엔 긴급 알림만 음성
+  fullCards: 1,                                 // 큰 카드로 보여줄 개수
+  compactRows: 3,                               // 그다음 축약 카드 개수, 넘치면 "N건 더 보기"
+  idleResetSec: 30,                             // 조작이 없으면 이 시간 뒤 초기 화면으로
+  agendaRemindMin: null,                        // 일정 기본 미리 알림(분). 일정별 remindBeforeMin이 우선
+};
+const SOURCES = {
+  delivery: { label: "배달", icon: "bag" },
+  fridge:   { label: "냉장고", icon: "fridge" },
+  door:     { label: "현관", icon: "door" },
+  trash:    { label: "생활", icon: "recycle" },
+  system:   { label: "시스템", icon: "bell" },
+  calendar: { label: "일정", icon: "calendar" },
+};
+const LEVEL_RANK = { urgent: 3, warn: 2, info: 1, ok: 0 };
+// 기기 앱이 주는 설정(위치 등)으로 덮어쓰기. 개인 값은 리포가 아니라 기기에만 저장된다.
+try { Object.assign(CONFIG, JSON.parse(window.KioskNative?.config?.() || "{}")); } catch {}
+
+/* ================= icons ================= */
+const P = {
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+  cloud: '<path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 11.1 3.5 3.5 0 0 0 7 18z"/>',
+  partly: '<path d="M8.5 3.5v1M3.5 8.5h1M5 5l.7.7M12 5l-.7.7"/><path d="M5.3 10.6A3.5 3.5 0 0 1 11.6 7"/><path d="M9 19h8a3.5 3.5 0 0 0 .4-6.98A5 5 0 0 0 8.2 12.6 3.2 3.2 0 0 0 9 19z"/>',
+  partlyN: '<path d="M11 6.2A4.5 4.5 0 0 1 5 11.5 4.5 4.5 0 0 0 11 6.2z"/><path d="M9 19h8a3.5 3.5 0 0 0 .4-6.98A5 5 0 0 0 8.2 12.6 3.2 3.2 0 0 0 9 19z"/>',
+  fog: '<path d="M4 9h16M3 13h18M5 17h14"/>',
+  rain: '<path d="M7 15h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 8.1 3.5 3.5 0 0 0 7 15z"/><path d="M9 18l-1 3M13 18l-1 3M17 18l-1 3"/>',
+  snow: '<path d="M7 15h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 8.1 3.5 3.5 0 0 0 7 15z"/><path d="M8 19h.01M12 18h.01M16 19h.01M10 21.5h.01M14 21.5h.01"/>',
+  storm: '<path d="M7 15h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 8.1 3.5 3.5 0 0 0 7 15z"/><path d="M12.5 15l-2 3.5h3l-2 3.5"/>',
+  bag: '<path d="M5.5 8h13l-1.2 12H6.7L5.5 8z"/><path d="M9 10V7a3 3 0 0 1 6 0v3"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  door: '<path d="M6 21V4h12v17M4 21h16"/><path d="M14.5 12.5h.01"/>',
+  fridge: '<rect x="6" y="2.5" width="12" height="19" rx="2"/><path d="M6 10h12M9 5.5v2M9 12.5v3"/>',
+  recycle: '<path d="M7 19H4.5l2.5-4.3M17 19h2.5L17 14.7M9.5 5.5L12 2l2.5 4.3"/><path d="M7 19h10M5.6 12.3l3.9-6.8M18.4 12.3l-3.9-6.8"/>',
+  alert: '<path d="M12 3l9.5 17h-19L12 3z"/><path d="M12 10v4M12 17h.01"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+};
+const svg = (k, sw = 1.6) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[k] || P.bell}</svg>`;
+
+/* ================= helpers ================= */
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pad2 = (n) => String(n).padStart(2, "0");
+const inHours = (h, { start, end }) => (start <= end ? h >= start && h < end : h >= start || h < end);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const native = window.KioskNative || null;   // Android 앱이 주입할 브리지 (speak, action 등)
+
+// 알림의 html 필드용: 스크립트·이벤트 핸들러·외부 임베드 제거 (인라인 style은 허용)
+function sanitize(html) {
+  const doc = new DOMParser().parseFromString(`<div>${html ?? ""}</div>`, "text/html");
+  doc.querySelectorAll("script,style,iframe,frame,object,embed,link,meta,base,form,input,textarea,select,button").forEach((e) => e.remove());
+  doc.querySelectorAll("*").forEach((el) => {
+    for (const a of [...el.attributes]) {
+      const n = a.name.toLowerCase(), v = a.value.trim().toLowerCase();
+      if (n.startsWith("on") || (/^(href|src|xlink:href|action|formaction)$/.test(n) && v.startsWith("javascript:"))) el.removeAttribute(a.name);
+    }
+  });
+  return doc.body.firstElementChild.innerHTML;
+}
+
+/* ================= clock ================= */
+const DAYS = ["일", "월", "화", "수", "목", "금", "토"];
+let lastMin = -1;
+function tickClock() {
+  const d = new Date();
+  if (d.getMinutes() === lastMin) return;
+  lastMin = d.getMinutes();
+  $("#clock").innerHTML = `${pad2(d.getHours())}<span class="colon">:</span>${pad2(d.getMinutes())}`;
+  $("#date").innerHTML = `${d.getMonth() + 1}월 ${d.getDate()}일 <b>${DAYS[d.getDay()]}요일</b>`;
+  applyTimeOfDay(d);
+  renderDock();   // 상대 시간 갱신
+  renderAgenda(); // 지난 일정 넘기기
+}
+
+let nightOverride = null;
+function applyTimeOfDay(d = new Date()) {
+  const h = d.getHours() + d.getMinutes() / 60;
+  const stops = [[0, [10, 16, 34]], [6, [24, 22, 52]], [9, [22, 38, 70]], [13, [24, 44, 78]], [17, [46, 36, 58]], [19.5, [30, 26, 54]], [22, [12, 18, 38]], [24, [10, 16, 34]]];
+  let i = 0; while (h > stops[i + 1][0]) i++;
+  const [h0, c0] = stops[i], [h1, c1] = stops[i + 1], t = (h - h0) / (h1 - h0);
+  const c = c0.map((v, k) => Math.round(v + (c1[k] - v) * t));
+  document.documentElement.style.setProperty("--sky", `rgb(${c.join(",")})`);
+  document.body.classList.toggle("night", nightOverride ?? inHours(d.getHours(), CONFIG.night));
+}
+
+/* ================= weather ================= */
+const WMO = (code, day = true) => {
+  if (code === 0) return [day ? "sun" : "moon", "맑음"];
+  if (code === 1) return [day ? "sun" : "moon", "대체로 맑음"];
+  if (code === 2) return [day ? "partly" : "partlyN", "구름 조금"];
+  if (code === 3) return ["cloud", "흐림"];
+  if (code === 45 || code === 48) return ["fog", "안개"];
+  if (code >= 51 && code <= 57) return ["rain", "이슬비"];
+  if (code >= 61 && code <= 67) return ["rain", "비"];
+  if (code >= 71 && code <= 77) return ["snow", "눈"];
+  if (code >= 80 && code <= 82) return ["rain", "소나기"];
+  if (code === 85 || code === 86) return ["snow", "소낙눈"];
+  if (code >= 95) return ["storm", "뇌우"];
+  return ["cloud", "-"];
+};
+
+async function fetchWeather() {
+  const u = new URL("https://api.open-meteo.com/v1/forecast");
+  u.search = new URLSearchParams({
+    latitude: CONFIG.lat, longitude: CONFIG.lon, timezone: "Asia/Seoul", forecast_days: 2,
+    current: "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day",
+    hourly: "temperature_2m,weather_code,precipitation_probability,is_day",
+    daily: "temperature_2m_max,temperature_2m_min",
+  });
+  const r = await fetch(u, { cache: "no-store" });
+  if (!r.ok) throw new Error("weather " + r.status);
+  return r.json();
+}
+
+function sampleWeather() { // 네트워크가 막힌 미리보기용 예시 데이터
+  const now = new Date(), base = new Date(now); base.setMinutes(0, 0, 0);
+  const time = [], temperature_2m = [], weather_code = [], precipitation_probability = [], is_day = [];
+  for (let i = 0; i < 30; i++) {
+    const t = new Date(base.getTime() + i * 3600e3), h = t.getHours();
+    time.push(`${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}T${pad2(h)}:00`);
+    temperature_2m.push(Math.round(4 + 5 * Math.sin(((h - 9) / 24) * 2 * Math.PI)));
+    weather_code.push(h >= 15 && h <= 19 ? 61 : h % 5 === 0 ? 3 : 2);
+    precipitation_probability.push(h >= 14 && h <= 20 ? 40 + (h % 3) * 15 : 0);
+    is_day.push(h >= 7 && h < 18 ? 1 : 0);
+  }
+  return {
+    sample: true,
+    current: { temperature_2m: temperature_2m[0], apparent_temperature: temperature_2m[0] - 3, relative_humidity_2m: 58, weather_code: weather_code[0], is_day: is_day[0] },
+    hourly: { time, temperature_2m, weather_code, precipitation_probability, is_day },
+    daily: { temperature_2m_max: [9], temperature_2m_min: [1] },
+  };
+}
+
+function renderWeather(w) {
+  const c = w.current, [ico, label] = WMO(c.weather_code, !!c.is_day);
+  const now = Date.now();
+  const start = w.hourly.time.findIndex((t) => new Date(t).getTime() > now - 3600e3);
+  const hours = [];
+  for (let i = Math.max(start, 0) + 1; hours.length < 6 && i < w.hourly.time.length; i += 2) {
+    const [hi] = WMO(w.hourly.weather_code[i], !!w.hourly.is_day[i]);
+    const p = w.hourly.precipitation_probability[i];
+    hours.push(`<div class="hr"><span class="t">${new Date(w.hourly.time[i]).getHours()}시</span>${svg(hi)}<span class="v">${Math.round(w.hourly.temperature_2m[i])}°</span><span class="p">${p >= 20 ? p + "%" : ""}</span></div>`);
+  }
+  $("#wx").innerHTML = `
+    <div class="wx-now">
+      ${svg(ico, 1.3)}
+      <div class="wx-temp">${Math.round(c.temperature_2m)}<sup>°C</sup></div>
+      <div class="wx-desc">
+        <span class="cond">${label}</span>
+        <span>체감 ${Math.round(c.apparent_temperature)}° · 습도 ${c.relative_humidity_2m}%</span>
+        <span>최고 ${Math.round(w.daily.temperature_2m_max[0])}° · 최저 ${Math.round(w.daily.temperature_2m_min[0])}° · ${esc(CONFIG.place)} ${w.sample ? '<span class="tag">예시</span>' : ""}</span>
+      </div>
+    </div>
+    <div class="wx-hours">${hours.join("")}</div>`;
+  setPrecip(c.weather_code);
+}
+
+let wxRetry = 0;
+async function updateWeather() {
+  try {
+    const w = await fetchWeather();
+    wxRetry = 0;
+    store.set("kiosk.wx", w);
+    renderWeather(w);
+  } catch (e) {
+    const cached = store.get("kiosk.wx", null);
+    renderWeather(cached || sampleWeather());
+    if (wxRetry++ < 3) setTimeout(updateWeather, 60e3);
+  }
+}
+
+/* ================= precipitation backdrop ================= */
+// 현재 날씨가 비/눈이면 배경에 은은하게 내린다. 30fps 제한, 저해상도 캔버스.
+const fx = { kind: null, level: 0, parts: [], raf: 0, last: 0, override: undefined, code: 0, w: 0, h: 0 };
+const fxCanvas = $("#fx"), fxCtx = fxCanvas.getContext("2d");
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function precipOf(code) {
+  if ([51, 53, 55, 56, 57, 61, 66, 80].includes(code)) return ["rain", 1];
+  if ([63, 81].includes(code)) return ["rain", 2];
+  if ([65, 67, 82].includes(code) || code >= 95) return ["rain", 3];
+  if ([71, 77, 85].includes(code)) return ["snow", 1];
+  if (code === 73) return ["snow", 2];
+  if ([75, 86].includes(code)) return ["snow", 3];
+  return [null, 0];
+}
+function setPrecip(code) { fx.code = code; applyPrecip(); }
+function applyPrecip(force = false) {
+  const [kind, level] = fx.override !== undefined ? fx.override : precipOf(fx.code);
+  if (!force && kind === fx.kind && level === fx.level) return;
+  fx.kind = kind; fx.level = level;
+  resizeFx();
+  fx.parts = kind ? Array.from({ length: fxCount() }, () => newDrop(true)) : [];
+  fxCtx.clearRect(0, 0, fx.w, fx.h);
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (kind && !fx.raf && !still) fx.raf = requestAnimationFrame(fxFrame);
+  if (!kind && fx.raf) { cancelAnimationFrame(fx.raf); fx.raf = 0; }
+}
+function resizeFx() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
+  fx.w = innerWidth; fx.h = innerHeight;
+  fxCanvas.width = Math.round(fx.w * dpr); fxCanvas.height = Math.round(fx.h * dpr);
+  fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function fxCount() {
+  const per = fx.kind === "snow" ? [0, 40, 80, 140] : [0, 45, 95, 170];
+  return Math.round(per[fx.level] * (fx.w * fx.h) / (457 * 731));
+}
+function newDrop(anywhere) {
+  const snow = fx.kind === "snow";
+  return {
+    x: Math.random() * (fx.w + 80) - 60,
+    y: anywhere ? Math.random() * fx.h : -30 - Math.random() * fx.h * 0.25,
+    v: snow ? 0.5 + Math.random() * 0.9 : 9 + Math.random() * 6 + fx.level,
+    s: snow ? 0.9 + Math.random() * 1.8 : 10 + Math.random() * 12,
+    a: snow ? 0.22 + Math.random() * 0.33 : 0.08 + Math.random() * 0.14,
+    p: Math.random() * Math.PI * 2,
+  };
+}
+function fxFrame(t) {
+  fx.raf = requestAnimationFrame(fxFrame);
+  if (document.hidden || t - fx.last < 33) return;
+  fx.last = t;
+  const g = fxCtx, snow = fx.kind === "snow", slant = 0.16;
+  g.clearRect(0, 0, fx.w, fx.h);
+  g.fillStyle = g.strokeStyle = cssVar(snow ? "--snow" : "--rain");
+  g.lineWidth = 1; g.lineCap = "round";
+  for (const q of fx.parts) {
+    if (snow) {
+      q.p += 0.03; q.x += Math.sin(q.p) * 0.45; q.y += q.v;
+      g.globalAlpha = q.a; g.beginPath(); g.arc(q.x, q.y, q.s, 0, 6.2832); g.fill();
+    } else {
+      q.x += q.v * slant; q.y += q.v;
+      g.globalAlpha = q.a; g.beginPath(); g.moveTo(q.x, q.y); g.lineTo(q.x - q.s * slant, q.y - q.s); g.stroke();
+    }
+    if (q.y - q.s > fx.h || q.x > fx.w + 40) Object.assign(q, newDrop(false));
+  }
+  g.globalAlpha = 1;
+}
+window.addEventListener("resize", () => fx.kind && applyPrecip(true));
+
+/* ================= notifications =================
+   notify({
+     id, source, level: info|warn|urgent|ok, icon,
+     title, body,                     // 텍스트 카드
+     html,                            // 또는 HTML 카드 (스크립트/이벤트 제거 후 렌더)
+     progress: { step, steps: [...] },
+     detail: { text | html | fields: [[k, v]...] },
+     tap: <action>,                   // 카드를 눌렀을 때 (기본: detail)
+     actions: [{ label, style: primary|danger, action: <action>, dismiss }],   // 세부 화면 버튼
+     sound: chime|alert|none|<audio url>, speak: true|"문장",
+     remind: { everySec, max },       // 확인할 때까지 반복 알림
+     ttlSec | expiresAt, silent
+   })
+   <action> = { type: detail|dismiss|speak|snooze(minutes)|url(url)|http(url, method, body, headers)|native(name, args) }
+================================================== */
+const notifs = new Map(store.get("kiosk.notifs", []).map((n) => [n.id, n]));
+const persist = () => store.set("kiosk.notifs", [...notifs.values()]);
+
+function visible() {
+  const now = Date.now();
+  return [...notifs.values()].filter((n) => !(n.snoozeUntil > now))
+    .sort((a, b) => (LEVEL_RANK[b.level] ?? 1) - (LEVEL_RANK[a.level] ?? 1) || b.updatedAt - a.updatedAt);
+}
+function relTime(ts) {
+  const m = Math.floor((Date.now() - ts) / 60e3);
+  if (m < 1) return "방금";
+  if (m < 60) return `${m}분 전`;
+  const d = new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+const srcOf = (n) => SOURCES[n.source] || { label: n.sourceLabel || n.source || "알림", icon: "bell" };
+const iconOf = (n) => n.icon || (n.level === "urgent" && !SOURCES[n.source] ? "alert" : srcOf(n).icon);
+const lv = (n) => `lv-${esc(LEVEL_RANK[n.level] !== undefined ? n.level : "info")}`;
+const speechOf = (n) => (n.speak === true ? [n.title, n.body].filter(Boolean).join(". ") : n.speak);
+const metaHtml = (n, ts = n.updatedAt) =>
+  `<span class="dot"></span>${esc(srcOf(n).label)} · ${relTime(ts)}${n.demo ? ' <span class="tag">예시</span>' : ""}`;
+
+function stepsHtml(pr) {
+  if (!pr || !Array.isArray(pr.steps)) return "";
+  return `<div class="steps">${pr.steps.map((s, i) =>
+    `<div class="step ${i < pr.step ? "done" : i === pr.step ? "now" : ""}"><i></i>${esc(s)}</div>`).join("")}</div>`;
+}
+function cardHtml(n) {
+  const content = n.html
+    ? `<div class="c-html">${sanitize(n.html)}</div>`
+    : `<span class="c-title">${esc(n.title)}</span>${n.body ? `<span class="c-body">${esc(n.body)}</span>` : ""}`;
+  return `<div class="card ${lv(n)}" role="button" tabindex="0" data-id="${esc(n.id)}">
+    <span class="ico">${svg(iconOf(n))}</span>
+    <span class="c-main"><span class="c-meta">${metaHtml(n)}</span>${content}${stepsHtml(n.progress)}</span>
+    <span class="chev" aria-hidden="true">›</span>
+  </div>`;
+}
+function rowHtml(n) {
+  const sub = n.progress?.steps?.[n.progress.step] || "";
+  return `<div class="row ${lv(n)}" role="button" tabindex="0" data-id="${esc(n.id)}">
+    <span class="ico sm">${svg(iconOf(n))}</span>
+    <span class="r-title">${esc(n.title || srcOf(n).label)}${sub ? `<small>${esc(sub)}</small>` : ""}</span>
+    <span class="r-time">${relTime(n.updatedAt)}</span>
+    <span class="chev" aria-hidden="true">›</span>
+  </div>`;
+}
+
+let dockSig = "";
+function renderDock() {
+  const list = visible();
+  const full = list.slice(0, CONFIG.fullCards);
+  const rows = list.slice(CONFIG.fullCards, CONFIG.fullCards + CONFIG.compactRows);
+  const rest = list.length - full.length - rows.length;
+  const html = full.map(cardHtml).join("") + rows.map(rowHtml).join("") +
+    (rest > 0 ? `<button type="button" class="more" data-more="1">알림 ${rest}건 더 보기</button>` : "");
+  if (html === dockSig) return;
+  dockSig = html;
+  $("#dock").innerHTML = html;
+}
+
+function notify(input) {
+  const n0 = typeof input === "string" ? JSON.parse(input) : { ...input };
+  const id = String(n0.id || `n-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+  const prev = notifs.get(id), now = Date.now();
+  const n = { level: "info", ...prev, ...n0, id, updatedAt: now, receivedAt: prev?.receivedAt || now };
+  if (n0.ttlSec) n.expiresAt = now + n0.ttlSec * 1000;
+  if (typeof n.expiresAt === "string") n.expiresAt = Date.parse(n.expiresAt);
+  delete n.snoozeUntil;
+  if (!n0.silent) { n.ack = false; n.remindCount = 0; n.lastAnnounced = now; }
+  else if (!n.lastAnnounced) n.lastAnnounced = now;   // 조용히 추가돼도 반복 알림은 주기만큼 기다린 뒤 시작
+  notifs.set(id, n);
+  persist();
+  renderDock();
+  if (!n0.silent) announce(n);
+  if (openSheetId === id) openDetail(id);
+  return id;
+}
+function dismiss(id) { notifs.delete(id); persist(); renderDock(); if (openSheetId === id) closeSheet(); }
+function clearAll() { notifs.clear(); persist(); renderDock(); closeSheet(); }
+function snooze(id, minutes = 5) {
+  const n = notifs.get(id); if (!n) return;
+  n.snoozeUntil = Date.now() + minutes * 60e3; n.ack = true;
+  persist(); renderDock(); closeSheet();
+  flash({ title: `${minutes}분 뒤에 다시 알려드릴게요`, level: "info", icon: "bell" });
+}
+
+/* 만료 · 다시 알림 · 반복 알림 */
+function tickNotifs() {
+  const now = Date.now(); let changed = false;
+  for (const n of [...notifs.values()]) {
+    if (n.expiresAt && n.expiresAt <= now) { notifs.delete(n.id); changed = true; continue; }
+    if (n.snoozeUntil && n.snoozeUntil <= now) {
+      delete n.snoozeUntil; n.ack = false; n.remindCount = 0; n.updatedAt = n.lastAnnounced = now;
+      announce(n); changed = true; continue;
+    }
+    if (n.ack === undefined) n.ack = false;
+    const r = n.remind;
+    if (r && !n.ack && !n.snoozeUntil && now - (n.lastAnnounced || 0) >= r.everySec * 1000 && (n.remindCount || 0) < (r.max ?? Infinity)) {
+      n.lastAnnounced = now; n.remindCount = (n.remindCount || 0) + 1; changed = true;
+      announce(n);
+    }
+  }
+  if (changed) { persist(); renderDock(); }
+  agendaReminders(now);
+}
+
+/* 도착 연출: 토스트 + 효과음 + 음성 */
+let toastTimer;
+function flash(n, ms = 4000) {
+  const t = $("#toast");
+  t.className = lv(n);
+  t.innerHTML = `<span class="ico">${svg(iconOf(n))}</span><span class="c-main">${n.source ? `<span class="c-meta">${esc(srcOf(n).label)}</span>` : ""}<span class="c-title">${esc(n.title || "새 알림")}</span>${n.body ? `<span class="c-body">${esc(n.body)}</span>` : ""}</span>`;
+  requestAnimationFrame(() => t.classList.add("show"));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), ms);
+}
+function announce(n) {
+  if (n.level === "urgent" && !$("#sheet").hidden && openSheetId !== n.id) closeSheet(); // 긴급은 열린 화면보다 우선
+  flash(n, n.level === "urgent" ? 12000 : 6000);
+  playSound(n.sound ?? (n.level === "urgent" ? "alert" : "chime"), n.level);
+  if (n.speak) speak(speechOf(n), n.level);
+}
+
+let actx;
+function playSound(kind, level) {
+  if (!kind || kind === "none") return;
+  try {
+    if (/^(https?:|\/|\.)/.test(kind)) { new Audio(kind).play().catch(() => {}); return; }
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === "suspended") actx.resume();
+    const notes = kind === "alert" ? [880, 660, 880, 660] : level === "warn" ? [740, 554] : [659, 880];
+    notes.forEach((f, i) => {
+      const o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + i * 0.18;
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.18, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.6);
+      o.connect(g).connect(actx.destination); o.start(t0); o.stop(t0 + 0.65);
+    });
+  } catch {}
+}
+function speak(text, level, force = false) {
+  if (!text) return;
+  if (!force && inHours(new Date().getHours(), CONFIG.quiet) && level !== "urgent") return;
+  setTimeout(() => {
+    try {
+      if (native?.speak) return native.speak(String(text));
+      if (!("speechSynthesis" in window)) return;
+      const u = new SpeechSynthesisUtterance(String(text)); u.lang = "ko-KR"; u.rate = 1;
+      speechSynthesis.cancel(); speechSynthesis.speak(u);
+    } catch {}
+  }, 700);
+}
+
+/* 동작 실행: 카드 탭, 세부 화면 버튼이 모두 이걸 쓴다 */
+async function perform(action, n) {
+  const a = typeof action === "string" ? { type: action } : action || { type: "detail" };
+  switch (a.type) {
+    case "detail": openDetail(n.id); break;
+    case "dismiss": dismiss(n.id); break;
+    case "speak": speak(speechOf(n), n.level, true); break;
+    case "snooze": snooze(n.id, a.minutes || 5); break;
+    case "url": openFrame(a.url, a.title || n.title); break;
+    case "native":
+      if (native?.action) native.action(String(a.name), JSON.stringify(a.args ?? {}));
+      else flash({ title: "기기 앱에서만 실행되는 동작이에요", body: a.name, level: "warn" });
+      break;
+    case "http":
+      try {
+        const r = await fetch(a.url, {
+          method: a.method || "POST",
+          headers: { "Content-Type": "application/json", ...(a.headers || {}) },
+          body: a.body === undefined ? undefined : typeof a.body === "string" ? a.body : JSON.stringify(a.body),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        flash({ title: a.doneText || "요청을 보냈어요", level: "ok", icon: "check" });
+      } catch (e) {
+        flash({ title: "요청을 보내지 못했어요", body: `${a.url} · ${e.message}`, level: "urgent", icon: "alert" });
+        return;
+      }
+      break;
+  }
+  if (a.dismiss && a.type !== "dismiss") dismiss(n.id);
+}
+
+/* ================= detail sheet ================= */
+let openSheetId = null, sheetActions = [];
+function sheetShow(html) {
+  const sh = $("#sheet");
+  sh.innerHTML = `<div class="sheet-in" role="dialog" aria-modal="true">${html}</div>`;
+  sh.hidden = false;
+  touched();
+}
+
+/* 무조작 복귀: 마지막 터치 후 idleResetSec 지나면 모든 화면을 닫고 초기 화면으로 */
+let lastTouch = Date.now();
+function touched() { lastTouch = Date.now(); }
+["pointerdown", "keydown", "wheel", "touchmove"].forEach((ev) => document.addEventListener(ev, touched, { passive: true, capture: true }));
+function idleCheck() {
+  if (Date.now() - lastTouch < CONFIG.idleResetSec * 1000) return;
+  if (!$("#sheet").hidden) closeSheet();
+  if (!$("#demo").hidden) $("#demo").hidden = true;
+}
+function openDetail(id) {
+  const n = notifs.get(id); if (!n) return;
+  openSheetId = id;
+  if (!n.ack) { n.ack = true; persist(); }       // 열어봤으면 반복 알림 중지
+  const d = n.detail || {};
+  const fields = Array.isArray(d.fields) ? d.fields : Object.entries(d.fields || {});
+  sheetActions = Array.isArray(n.actions) ? n.actions : [];
+  const custom = sheetActions.map((b, i) => `<button type="button" class="btn ${b.style === "primary" ? "primary" : b.style === "danger" ? "danger" : ""}" data-ai="${i}">${esc(b.label)}</button>`).join("");
+  const hasPrimary = sheetActions.some((b) => b.style === "primary");
+  const bodyHtml = d.html ? `<div class="sh-html">${sanitize(d.html)}</div>`
+    : (d.text || n.body) ? `<p class="sh-body">${esc(d.text || n.body)}</p>`
+    : n.html ? `<div class="sh-html">${sanitize(n.html)}</div>` : "";
+  sheetShow(`
+    <div class="sh-head ${lv(n)}">
+      <span class="ico">${svg(iconOf(n))}</span>
+      <span class="c-meta">${metaHtml(n, n.receivedAt)}${n.updatedAt !== n.receivedAt ? ` · ${relTime(n.updatedAt)} 갱신` : ""}</span>
+    </div>
+    ${n.title ? `<h2 class="sh-title">${esc(n.title)}</h2>` : ""}
+    ${stepsHtml(n.progress)}
+    ${bodyHtml}
+    ${fields.length ? `<dl class="sh-fields">${fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
+    ${custom ? `<div class="sh-actions">${custom}</div>` : ""}
+    <div class="sh-actions">
+      ${n.speak ? `<button type="button" class="btn" data-act="say">다시 듣기</button>` : ""}
+      <button type="button" class="btn" data-act="dismiss">알림 지우기</button>
+      <button type="button" class="btn ${hasPrimary ? "" : "primary"}" data-act="close">닫기</button>
+    </div>`);
+}
+function openList() {
+  openSheetId = null;
+  const list = visible();
+  sheetShow(`<h2 class="sh-title">알림 ${list.length}건</h2>
+    <div class="sh-list">${list.map(rowHtml).join("")}</div>
+    <div class="sh-actions"><button type="button" class="btn" data-act="clear">모두 지우기</button><button type="button" class="btn primary" data-act="close">닫기</button></div>`);
+}
+function openFrame(url, title) {
+  openSheetId = null;
+  sheetShow(`<h2 class="sh-title">${esc(title || "")}</h2>
+    <iframe class="sh-frame" src="${esc(url)}" referrerpolicy="no-referrer"></iframe>
+    <div class="sh-actions"><button type="button" class="btn primary" data-act="close">닫기</button></div>`);
+}
+function closeSheet() { $("#sheet").hidden = true; $("#sheet").innerHTML = ""; openSheetId = null; }
+
+/* ================= agenda =================
+   setAgenda([{ id, title, start, end, allDay, location, note, calendar, color, remindBeforeMin }])
+   start/end: ISO 문자열 ("2026-11-20T14:00:00+09:00") 또는 종일 일정이면 "2026-11-20"
+   목록 전체를 통째로 교체한다 (캘린더 동기화 결과를 그대로 넘기면 됨).
+================================================== */
+const parseWhen = (v) => {
+  if (typeof v === "number") return v;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || "");
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : Date.parse(v);
+};
+const dayStart = (ts, add = 0) => { const d = new Date(ts); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + add); return d.getTime(); };
+const hhmm = (ts) => { const d = new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+function normEvent(e) {
+  const s = parseWhen(e.start); if (isNaN(s)) return null;
+  let en = e.end != null ? parseWhen(e.end) : NaN;
+  if (isNaN(en)) en = e.allDay ? dayStart(s, 1) : s + 3600e3;
+  return { ...e, id: String(e.id || `${e.title}-${s}`), s, e: en };
+}
+let agendaRaw = store.get("kiosk.agenda", []);
+let agenda = agendaRaw.map(normEvent).filter(Boolean).sort((a, b) => a.s - b.s);
+function setAgenda(items) {
+  agendaRaw = typeof items === "string" ? JSON.parse(items) : items || [];
+  agenda = agendaRaw.map(normEvent).filter(Boolean).sort((a, b) => a.s - b.s);
+  store.set("kiosk.agenda", agendaRaw);
+  renderAgenda();
+}
+const eventsOn = (dayOffset) => {
+  const a = dayStart(Date.now(), dayOffset), b = dayStart(Date.now(), dayOffset + 1);
+  return agenda.filter((e) => e.e > a && e.s < b);
+};
+const evColor = (e) => (e.color ? `--ec:${esc(e.color)}` : "");
+
+let agendaSig = "";
+function renderAgenda() {
+  const now = Date.now(), today = eventsOn(0);
+  const timed = today.filter((e) => !e.allDay && e.e > now), allDay = today.filter((e) => e.allDay);
+  let main, label, others, later = false;
+  if (timed.length) { main = timed[0]; label = main.s <= now ? "진행 중" : hhmm(main.s); others = timed.length - 1 + allDay.length; }
+  else if (allDay.length) { main = allDay[0]; label = "종일"; others = allDay.length - 1; }
+  else {
+    const tm = eventsOn(1);
+    if (tm.length) { main = tm[0]; label = `내일 ${main.allDay ? "종일" : hhmm(main.s)}`; others = tm.length - 1; later = true; }
+  }
+  const el = $("#agenda");
+  const html = main ? `<span class="bar"></span><span class="when">${label}</span><span class="what">${esc(main.title)}</span>${others > 0 ? `<span class="more-ev">외 ${others}건</span>` : ""}<span class="chev">›</span>` : "";
+  const sig = html + (main?.color || "") + later;
+  if (sig === agendaSig) return;
+  agendaSig = sig;
+  el.hidden = !main;
+  el.innerHTML = html;
+  el.className = `agenda${later ? " later" : ""}`;
+  el.style.cssText = main ? evColor(main) : "";
+}
+
+function evRow(e) {
+  const now = Date.now();
+  const cls = e.e <= now ? "past" : e.s <= now ? "now" : "";
+  const t = e.allDay ? "종일" : `${hhmm(e.s)}<small>~${hhmm(e.e)}</small>`;
+  return `<div class="ev ${cls}" role="button" tabindex="0" data-ev="${esc(e.id)}" style="${evColor(e)}">
+    <span class="t">${t}</span><span class="b"></span>
+    <span><span class="ti">${esc(e.title)}</span>${e.location ? `<span class="lo">${esc(e.location)}</span>` : ""}</span>
+    <span class="chev">›</span></div>`;
+}
+function openAgenda() {
+  openSheetId = null;
+  const d0 = new Date(), d1 = new Date(dayStart(Date.now(), 1));
+  const day = (d) => `${d.getMonth() + 1}월 ${d.getDate()}일 ${DAYS[d.getDay()]}요일`;
+  const sec = (title, list) => `<div class="ev-day">${title}</div>
+    <div class="ev-list">${list.length ? list.map(evRow).join("") : '<div class="ev-empty">일정이 없어요</div>'}</div>`;
+  const demo = agenda.some((e) => e.demo) ? ' <span class="tag">예시</span>' : "";
+  sheetShow(`<h2 class="sh-title">가족 일정${demo}</h2>
+    ${sec(`오늘 · ${day(d0)}`, eventsOn(0))}
+    ${sec(`내일 · ${day(d1)}`, eventsOn(1))}
+    <div class="sh-actions"><button type="button" class="btn primary" data-act="close">닫기</button></div>`);
+}
+function openEvent(id) {
+  const e = agenda.find((x) => x.id === id); if (!e) return;
+  openSheetId = null;
+  const d = new Date(e.s);
+  const when = e.allDay ? `${d.getMonth() + 1}월 ${d.getDate()}일 (${DAYS[d.getDay()]}) 종일`
+    : `${d.getMonth() + 1}월 ${d.getDate()}일 (${DAYS[d.getDay()]}) ${hhmm(e.s)} ~ ${hhmm(e.e)}`;
+  const fields = [["언제", when]];
+  if (e.location) fields.push(["장소", e.location]);
+  if (e.calendar) fields.push(["캘린더", e.calendar]);
+  const rm = e.remindBeforeMin ?? CONFIG.agendaRemindMin;
+  if (rm) fields.push(["미리 알림", `${rm}분 전`]);
+  sheetShow(`
+    <div class="sh-head" style="${evColor(e)}"><span class="ico" style="--lc:var(--ec, var(--lamp))">${svg("calendar")}</span>
+      <span class="c-meta">일정${e.demo ? ' <span class="tag">예시</span>' : ""}</span></div>
+    <h2 class="sh-title">${esc(e.title)}</h2>
+    <dl class="sh-fields">${fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+    ${e.note ? `<p class="sh-body">${esc(e.note)}</p>` : ""}
+    <div class="sh-actions"><button type="button" class="btn" data-act="agenda">목록으로</button><button type="button" class="btn primary" data-act="close">닫기</button></div>`);
+}
+
+/* 일정 미리 알림: remindBeforeMin 분 전에 알림 카드 + 음성 */
+const reminded = new Set(store.get("kiosk.reminded", []));
+function agendaReminders(now) {
+  let dirty = false;
+  for (const e of agenda) {
+    const rm = e.remindBeforeMin ?? CONFIG.agendaRemindMin;
+    if (!rm || e.allDay) continue;
+    const key = `${e.id}@${e.s}`;
+    if (reminded.has(key) || now < e.s - rm * 60e3 || now >= e.s) continue;
+    reminded.add(key); dirty = true;
+    const left = Math.max(1, Math.round((e.s - now) / 60e3));
+    notify({
+      id: `cal-${e.id}`, source: "calendar", demo: e.demo, icon: "calendar",
+      title: `${left}분 뒤 · ${e.title}`, body: `${hhmm(e.s)}${e.location ? ` · ${e.location}` : ""}`,
+      speak: `${left}분 뒤에 ${e.title} 일정이 있습니다`,
+      expiresAt: e.e, tap: { type: "detail" },
+      detail: { fields: [["시간", `${hhmm(e.s)} ~ ${hhmm(e.e)}`], ...(e.location ? [["장소", e.location]] : []), ...(e.note ? [["메모", e.note]] : [])] },
+    });
+  }
+  if (dirty) {
+    const keep = [...reminded].slice(-200);
+    store.set("kiosk.reminded", keep);
+  }
+}
+
+function onActivate(e) {
+  if (e.target.closest("#demo, #demoBtn")) return;
+  const hit = e.target.closest(".card, .row");
+  if (hit) {
+    e.preventDefault(); // html 카드 안의 링크로 페이지가 넘어가지 않게
+    const n = notifs.get(hit.dataset.id);
+    if (n) perform(n.tap || "detail", n);
+    return;
+  }
+  if (e.target.closest("[data-more]")) return openList();
+  if (e.target.closest("#agenda")) return openAgenda();
+  const evId = e.target.closest("[data-ev]")?.dataset.ev;
+  if (evId) return openEvent(evId);
+  const ai = e.target.closest("[data-ai]")?.dataset.ai;
+  if (ai !== undefined) { const n = notifs.get(openSheetId), b = sheetActions[+ai]; if (n && b) perform({ ...b.action, dismiss: b.dismiss ?? b.action?.dismiss }, n); return; }
+  const act = e.target.closest("[data-act]")?.dataset.act;
+  if (act === "close") return closeSheet();
+  if (act === "agenda") return openAgenda();
+  if (act === "clear") return clearAll();
+  if (act === "dismiss") return dismiss(openSheetId);
+  if (act === "say") { const n = notifs.get(openSheetId); return n && speak(speechOf(n), n.level, true); }
+  if (e.target === $("#sheet")) closeSheet();
+}
+document.addEventListener("click", onActivate);
+document.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.closest?.(".card, .row, .ev")) onActivate(e); if (e.key === "Escape") closeSheet(); });
+
+/* ================= clock placement + burn-in guard ================= */
+// 시계 영역 가운데를 기준으로 ±driftPx 안에서만 천천히 이동. 영역보다 크면 축소해서 알림 영역을 침범하지 않음.
+let driftTimer, placed = false;
+function placeFloat(durSec) {
+  const z = $("#zone"), fl = $("#float");
+  const zw = z.clientWidth, zh = z.clientHeight;
+  if (!zw || !zh) return;
+  // 넘치면 덜 중요한 것부터 숨기고, 그래도 넘치면 축소
+  fl.classList.remove("c1", "c2", "c3");
+  let fw = fl.offsetWidth, fh = fl.offsetHeight;
+  for (const c of ["c1", "c2", "c3"]) {
+    if (fw <= zw && fh <= zh) break;
+    fl.classList.remove("c1", "c2", "c3"); fl.classList.add(c);
+    fw = fl.offsetWidth; fh = fl.offsetHeight;
+  }
+  if (!fw || !fh) return;
+  const s = Math.min(1, zw / fw, zh / fh);
+  const slackX = (zw - fw * s) / 2, slackY = (zh - fh * s) / 2;
+  const rx = Math.min(CONFIG.driftPx, slackX), ry = Math.min(CONFIG.driftPx, slackY);
+  const cur = fl._off || { dx: 0, dy: 0 };
+  let dx, dy, tries = 0;
+  do { dx = (Math.random() * 2 - 1) * rx; dy = (Math.random() * 2 - 1) * ry; }
+  while (++tries < 8 && Math.hypot(dx - cur.dx, dy - cur.dy) < Math.max(rx, ry) * 0.7);
+  fl._off = { dx, dy };
+  fl.style.transitionDuration = placed ? `${durSec}s` : "0s";
+  fl.style.transform = `translate(${Math.round(slackX + dx)}px, ${Math.round(slackY + dy)}px) scale(${s.toFixed(3)})`;
+  placed = true;
+}
+function scheduleDrift() {
+  clearTimeout(driftTimer);
+  placeFloat(1.2);
+  driftTimer = setTimeout(function loop() { placeFloat(CONFIG.driftDurationSec); driftTimer = setTimeout(loop, CONFIG.driftEverySec * 1000); }, CONFIG.driftEverySec * 1000);
+}
+function pixelShift() {
+  const r = () => Math.round(Math.random() * 4 - 2);
+  $("#stage").style.transform = `translate(${r()}px, ${r()}px)`;
+}
+
+/* ================= Android 알림 → 카드 규칙 =================
+   기기 앱이 감시 대상 앱의 알림을 raw({package, title, text, bigText, subText, ...})로 넘긴다.
+   패키지별 규칙이 알림 객체를 돌려주면 카드로 띄우고, null 이면(광고 등) 무시한다.
+================================================== */
+const DELIVERY_STEPS_ANDROID = ["주문 접수", "조리 중", "배달 출발", "배달 완료"];
+const ANDROID_RULES = {
+  // 배달의민족: 실제 알림 문구를 확인한 뒤 다듬을 예정 (GET /api/android-notifications)
+  "com.sampleapp": (r) => {
+    const body = r.bigText || r.text;
+    const all = `${r.title} ${body}`;
+    const step = /완료|도착했/.test(all) ? 3 : /출발|배달을 시작|픽업/.test(all) ? 2
+      : /조리|준비 중|준비를 시작/.test(all) ? 1 : /접수|수락|주문을 확인/.test(all) ? 0 : null;
+    if (step === null) return null;
+    return {
+      id: "baemin-order", source: "delivery", level: step === 3 ? "ok" : "info",
+      title: r.title || DELIVERY_STEPS_ANDROID[step], body,
+      progress: { step, steps: DELIVERY_STEPS_ANDROID },
+      speak: step === 1 ? undefined : `${DELIVERY_STEPS_ANDROID[step]}. ${r.title || ""}`,
+      detail: { text: [r.title, body, r.subText].filter(Boolean).join("\n") },
+      ttlSec: step === 3 ? 1800 : 4 * 3600,
+    };
+  },
+};
+function ingestAndroid(raw) {
+  const r = typeof raw === "string" ? JSON.parse(raw) : raw;
+  const rule = ANDROID_RULES[r.package];
+  const n = rule ? rule(r) : null;
+  if (n) notify(n);
+  return !!n;
+}
+
+/* ================= public API for native shell / scripts ================= */
+window.kiosk = { notify, dismiss, snooze, clear: clearAll, list: () => visible(), setAgenda, agenda: () => agenda, ingestAndroid };
+
+/* ================= demo ================= */
+const DELIVERY_STEPS = ["주문 접수", "조리 중", "배달 출발", "배달 완료"];
+const DELIVERY_DETAIL = { fields: [["가게", "동네김밥 본점"], ["메뉴", "참치김밥 2, 라볶이 1"], ["결제 금액", "18,500원"], ["요청사항", "문 앞에 두고 벨 눌러주세요"]] };
+let demoStep = -1;
+function demoDelivery(silent = false) {
+  demoStep = (demoStep + 1) % DELIVERY_STEPS.length;
+  const s = demoStep;
+  const lines = [
+    ["주문이 접수됐어요", "가게에서 주문을 확인했습니다", "주문이 접수되었습니다"],
+    ["음식을 만들고 있어요", "약 25분 뒤 출발 예정", null],
+    ["배달을 시작했어요", "약 15분 뒤 도착 예정 (오후 7:42)", "배달이 출발했습니다. 약 15분 뒤 도착합니다"],
+    ["배달이 완료됐어요", "문 앞에 놓아두었습니다", "배달이 완료되었습니다"],
+  ][s];
+  notify({
+    id: "demo-delivery", source: "delivery", demo: true, silent,
+    level: s === 3 ? "ok" : "info",
+    title: lines[0], body: lines[1], speak: lines[2] || undefined,
+    progress: { step: s, steps: DELIVERY_STEPS },
+    detail: DELIVERY_DETAIL,
+    ttlSec: s === 3 ? 600 : undefined,
+  });
+}
+function demoFridge(silent = false) {
+  notify({
+    id: "fridge-door", source: "fridge", demo: true, silent, level: "warn",
+    title: "냉장고 문이 열려 있어요", body: "주방 냉장고 · 3분째 열림",
+    speak: "냉장고 문이 열려 있습니다",
+    remind: { everySec: 60, max: 5 },
+    detail: { fields: [["기기", "주방 냉장고 (냉장실)"], ["열린 시각", "오후 6:51"], ["내부 온도", "6.5°C (평소 3°C)"]] },
+    actions: [
+      { label: "확인했어요", style: "primary", action: { type: "dismiss" } },
+      { label: "5분 뒤 다시 알림", action: { type: "snooze", minutes: 5 } },
+    ],
+  });
+}
+function setupDemo() {
+  if (native) return;
+  $("#demoBtn").hidden = false;
+  $("#demoBtn").onclick = () => ($("#demo").hidden = !$("#demo").hidden);
+  $("#dm-delivery").onclick = () => demoDelivery();
+  $("#dm-fridge").onclick = () => demoFridge();
+  $("#dm-html").onclick = () => notify({
+    id: "trash-day", source: "trash", demo: true, title: "오늘은 재활용 배출일",
+    html: '<div style="font-size:20px;font-weight:500">오늘은 <span style="color:var(--ok)">재활용</span> 배출일</div>' +
+          '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
+          ['플라스틱', '비닐', '캔', '종이'].map((x) => `<span style="border:1px solid var(--faint);border-radius:999px;padding:2px 10px;font-size:14px;color:var(--dim)">${x}</span>`).join("") +
+          '</div><div style="color:var(--dim);font-size:14px;margin-top:6px">저녁 8시 이후 · 1층 분리수거장</div>',
+    tap: { type: "dismiss" }, speak: "오늘은 재활용 배출일입니다", ttlSec: 6 * 3600,
+  });
+  $("#dm-info").onclick = () => notify({ source: "system", demo: true, title: "세탁이 끝났어요", body: "세탁기 표준 코스 완료 · 1시간 12분", detail: { text: "건조기로 옮겨 주세요." }, ttlSec: 3600 });
+  $("#dm-urgent").onclick = () => notify({
+    id: "door-open", source: "door", demo: true, level: "urgent", title: "현관문이 열려 있어요", body: "5분째 열린 상태입니다",
+    speak: true, remind: { everySec: 30, max: 10 },
+    detail: { fields: [["센서", "현관 도어 센서"], ["열린 시각", "오후 7:20"]] },
+    actions: [{ label: "확인했어요", style: "primary", action: { type: "dismiss" } }],
+  });
+  const FX_MODES = [["자동", undefined], ["비", ["rain", 2]], ["폭우", ["rain", 3]], ["눈", ["snow", 2]], ["함박눈", ["snow", 3]], ["끔", [null, 0]]];
+  let fxMode = 0;
+  $("#dm-fx").onclick = () => {
+    fxMode = (fxMode + 1) % FX_MODES.length;
+    const [label, ov] = FX_MODES[fxMode];
+    fx.override = ov; applyPrecip(true);
+    $("#dm-fx").textContent = `배경 날씨 효과: ${label}`;
+  };
+  $("#dm-night").onclick = () => { nightOverride = !document.body.classList.contains("night"); applyTimeOfDay(); };
+  $("#dm-clear").onclick = clearAll;
+  $("#dm-cal").onclick = () => {
+    const s = Date.now() + 29.5 * 60e3;
+    setAgenda([...agendaRaw.filter((e) => e.id !== "demo-soon"), {
+      id: "demo-soon", demo: true, title: "택배 기사님 방문", start: new Date(s).toISOString(), end: new Date(s + 30 * 60e3).toISOString(),
+      location: "현관", note: "냉장 보관 상품", remindBeforeMin: 30, color: "#c9a0f0", calendar: "가족",
+    }]);
+    tickNotifs();
+  };
+  if (notifs.size === 0) { demoStep = 0; demoDelivery(true); demoFridge(true); }
+  if (agenda.length === 0) setAgenda(sampleAgenda());
+}
+function sampleAgenda() {
+  const at = (dayOff, h, m = 0) => { const d = new Date(dayStart(Date.now(), dayOff)); d.setHours(h, m); return d.toISOString(); };
+  const ymd = (dayOff) => { const d = new Date(dayStart(Date.now(), dayOff)); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+  const soon = new Date(Math.ceil((Date.now() + 80 * 60e3) / 1800e3) * 1800e3);
+  return [
+    { id: "d1", demo: true, title: "아침 약 챙기기", start: at(0, 7, 30), end: at(0, 7, 45), calendar: "가족", color: "#7f879a" },
+    { id: "d2", demo: true, title: "치과 정기검진 (엄마)", start: soon.toISOString(), end: new Date(soon.getTime() + 3600e3).toISOString(), location: "동네 치과", note: "보험증 챙기기", remindBeforeMin: 30, calendar: "가족", color: "#8fb0f5" },
+    { id: "d3", demo: true, title: "가족 저녁 외식", start: at(0, 19), end: at(0, 21), location: "단골 식당", calendar: "가족", color: "#e9b072" },
+    { id: "d4", demo: true, title: "김장 재료 주문 마감", start: ymd(0), allDay: true, calendar: "가족", color: "#7fcfa5" },
+    { id: "d5", demo: true, title: "학교 상담", start: at(1, 10), end: at(1, 11), location: "학교 상담실", calendar: "가족", color: "#c9a0f0" },
+  ];
+}
+
+/* ================= boot ================= */
+document.addEventListener("pointerdown", () => { try { actx?.resume(); } catch {} }, { once: true });
+tickClock();
+setInterval(tickClock, 1000);
+setInterval(tickNotifs, 5000);
+setInterval(idleCheck, 5000);
+setInterval(pixelShift, CONFIG.pixelShiftSec * 1000);
+setupDemo();
+renderDock();
+renderWeather(store.get("kiosk.wx", null) || sampleWeather());
+updateWeather();
+setInterval(updateWeather, CONFIG.weatherRefreshMin * 60e3);
+// 폰트 로드·날씨 갱신·알림 변화로 크기가 바뀌면 다시 배치
+const ro = new ResizeObserver(() => scheduleDrift());
+ro.observe($("#zone")); ro.observe($("#float"));
+</script>
+</body>
+</html>
