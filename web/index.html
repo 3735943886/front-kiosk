@@ -285,6 +285,7 @@ body.night #dock { opacity: .75; }
 
 <div id="sheet" hidden></div>
 
+<script src="ics.js"></script>
 <script>
 "use strict";
 /* ================= config ================= */
@@ -362,11 +363,16 @@ function sanitize(html) {
 
 /* ================= clock ================= */
 const DAYS = ["일", "월", "화", "수", "목", "금", "토"];
-let lastMin = -1;
+let lastMin = -1, lastDay = -1;
 function tickClock() {
   const d = new Date();
   if (d.getMinutes() === lastMin) return;
   lastMin = d.getMinutes();
+  if (d.getDate() !== lastDay) {               // 날짜가 바뀌면 반복 일정을 새로 펼친다
+    const first = lastDay === -1;
+    lastDay = d.getDate();
+    if (!first) rebuildAgenda();
+  }
   $("#clock").innerHTML = `${pad2(d.getHours())}<span class="colon">:</span>${pad2(d.getMinutes())}`;
   $("#date").innerHTML = `${d.getMonth() + 1}월 ${d.getDate()}일 <b>${DAYS[d.getDay()]}요일</b>`;
   applyTimeOfDay(d);
@@ -822,14 +828,40 @@ function normEvent(e) {
   return { ...e, id: String(e.id || `${e.title}-${s}`), s, e: en, point, until: point ? s + POINT_GRACE : en };
 }
 const evTime = (e) => (e.allDay ? "종일" : e.point ? hhmm(e.s) : `${hhmm(e.s)} ~ ${hhmm(e.e)}`);
-let agendaRaw = store.get("kiosk.agenda", []);
-let agenda = agendaRaw.map(normEvent).filter(Boolean).sort((a, b) => a.s - b.s);
-function setAgenda(items) {
-  agendaRaw = typeof items === "string" ? JSON.parse(items) : items || [];
-  agenda = agendaRaw.map(normEvent).filter(Boolean).sort((a, b) => a.s - b.s);
-  store.set("kiosk.agenda", agendaRaw);
+let agendaRaw = store.get("kiosk.agenda", []);      // API(PUT /api/agenda)로 받은 일정
+let calItems = store.get("kiosk.calItems", []);     // 캘린더(ICS)에서 펼친 오늘·내일 일정 (마지막 동기화 결과)
+const calStore = {};                                // 캘린더 이름 → { cfg, evs }
+let agenda = agendaRaw.concat(calItems).map(normEvent).filter(Boolean).sort((a, b) => a.s - b.s);
+function rebuildAgenda() {
+  if (Object.keys(calStore).length && window.ICS) {
+    const from = dayStart(Date.now()), to = dayStart(Date.now(), 2);
+    calItems = Object.values(calStore).flatMap(({ cfg, evs }) => ICS.toAgenda(evs, cfg, from, to));
+    store.set("kiosk.calItems", calItems);
+  }
+  agenda = agendaRaw.concat(calItems).map(normEvent).filter(Boolean).sort((a, b) => a.s - b.s);
+  agendaSig = "";
   renderAgenda();
 }
+function setAgenda(items) {
+  agendaRaw = typeof items === "string" ? JSON.parse(items) : items || [];
+  store.set("kiosk.agenda", agendaRaw);
+  rebuildAgenda();
+}
+/* 기기 앱이 캘린더 iCal 을 받아 넘겨준다: cfg = { name, color, remind: [분...] } */
+function loadIcs(name, cfg, text) {
+  const c = typeof cfg === "string" ? JSON.parse(cfg) : cfg || {};
+  calStore[name] = { cfg: { ...c, name }, evs: ICS.parse(text) };
+  rebuildAgenda();
+  return calStore[name].evs.length;
+}
+/* 설정에서 빠진 캘린더 정리 */
+function setCalendars(names) {
+  for (const k of Object.keys(calStore)) if (!names.includes(k)) delete calStore[k];
+  if (!names.length) { calItems = []; store.set("kiosk.calItems", []); }
+  rebuildAgenda();
+}
+const remindsOf = (e) =>
+  (Array.isArray(e.remind) ? e.remind : [e.remind ?? e.remindBeforeMin ?? CONFIG.agendaRemindMin]).map(Number).filter((n) => n > 0);
 const eventsOn = (dayOffset) => {
   const a = dayStart(Date.now(), dayOffset), b = dayStart(Date.now(), dayOffset + 1);
   return agenda.filter((e) => e.until > a && e.s < b);
@@ -910,8 +942,9 @@ function openEvent(id) {
   const fields = [["언제", when]];
   if (e.location) fields.push(["장소", e.location]);
   if (e.calendar) fields.push(["캘린더", e.calendar]);
-  const rm = e.remindBeforeMin ?? CONFIG.agendaRemindMin;
-  if (rm) fields.push(["미리 알림", `${rm}분 전`]);
+  const rms = remindsOf(e);
+  if (rms.length) fields.push(["음성 알림", rms.map((m) => `${m}분 전`).join(", ")]);
+  if (e.speakText) fields.push(["알림 멘트", e.speakText]);
   sheetShow(`
     <div class="sh-head" style="${evColor(e)}"><span class="ico" style="--lc:var(--ec, var(--lamp))">${svg("calendar")}</span>
       <span class="c-meta">일정${e.demo ? ' <span class="tag">예시</span>' : ""}</span></div>
@@ -921,23 +954,22 @@ function openEvent(id) {
     <div class="sh-actions"><button type="button" class="btn" data-act="agenda">목록으로</button><button type="button" class="btn primary" data-act="close">닫기</button></div>`);
 }
 
-/* 일정 미리 알림: remindBeforeMin 분 전에 알림 카드 + 음성 */
+/* 일정 미리 알림: remind 분 전마다 알림 카드 + 음성 (#알림 30,5 → 30분 전, 5분 전) */
 const reminded = new Set(store.get("kiosk.reminded", []));
 function agendaReminders(now) {
   let dirty = false;
   for (const e of agenda) {
-    const rm = e.remindBeforeMin ?? CONFIG.agendaRemindMin;
-    if (!rm || e.allDay) continue;
-    const key = `${e.id}@${e.s}`;
-    if (reminded.has(key) || now < e.s - rm * 60e3 || now >= e.s) continue;
-    reminded.add(key); dirty = true;
+    if (e.allDay || now >= e.s) continue;
+    const due = remindsOf(e).filter((rm) => now >= e.s - rm * 60e3);
+    if (!due.some((rm) => !reminded.has(`${e.id}@${e.s}@${rm}`))) continue;
+    due.forEach((rm) => reminded.add(`${e.id}@${e.s}@${rm}`)); dirty = true;   // 늦게 켜졌으면 한 번만
     const left = Math.max(1, Math.round((e.s - now) / 60e3));
     notify({
       id: `cal-${e.id}`, source: "calendar", demo: e.demo, icon: "calendar",
       title: `${left}분 뒤 · ${e.title}`, body: `${hhmm(e.s)}${e.location ? ` · ${e.location}` : ""}`,
-      speak: `${left}분 뒤에 ${e.title} 일정이 있습니다`,
+      speak: `${left}분 뒤에 ${e.title} 일정이 있습니다.${e.speakText ? ` ${e.speakText}` : ""}`,
       expiresAt: e.until, tap: { type: "detail" },
-      detail: { fields: [["시간", evTime(e)], ...(e.location ? [["장소", e.location]] : []), ...(e.note ? [["메모", e.note]] : [])] },
+      detail: { fields: [["시간", evTime(e)], ...(e.location ? [["장소", e.location]] : []), ...(e.speakText ? [["알림 멘트", e.speakText]] : []), ...(e.note ? [["메모", e.note]] : [])] },
     });
   }
   if (dirty) {
@@ -1043,7 +1075,7 @@ function ingestAndroid(raw) {
 }
 
 /* ================= public API for native shell / scripts ================= */
-window.kiosk = { notify, dismiss, snooze, clear: clearAll, list: () => visible(), setAgenda, agenda: () => agenda, ingestAndroid };
+window.kiosk = { notify, dismiss, snooze, clear: clearAll, list: () => visible(), setAgenda, agenda: () => agenda, ingestAndroid, loadIcs, setCalendars };
 
 /* ================= demo ================= */
 const DELIVERY_STEPS = ["주문 접수", "조리 중", "배달 출발", "배달 완료"];

@@ -171,7 +171,10 @@ class MainActivity : Activity() {
             return request.url.host != start.host
         }
 
-        override fun onPageFinished(view: WebView, url: String) { Hub.pageReady() }
+        override fun onPageFinished(view: WebView, url: String) {
+            Hub.pageReady()
+            CalendarSync.now() // 페이지가 새로 뜨면 캘린더를 다시 넘겨준다
+        }
 
         /** WebView 렌더러가 죽으면 화면을 다시 만든다 */
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {

@@ -17,6 +17,9 @@ import org.json.JSONTokener
  *   GET    /api/android-notifications  최근 받은 다른 앱 알림 원본
  *   PUT    /api/config              {"place","lat","lon","pin","watch","consume","url"}
  *   POST   /api/reload              화면 새로고침
+ *   PUT    /api/calendars           [{"name","url","color","remind":[분]}] 구독 캘린더 교체 (url 은 기기에만 저장)
+ *   GET    /api/calendars           구독 캘린더 목록(url 대신 host)과 마지막 동기화 결과
+ *   POST   /api/calendars/sync      지금 동기화
  */
 class ApiServer(port: Int) : NanoHTTPD(port) {
 
@@ -84,6 +87,19 @@ class ApiServer(port: Int) : NanoHTTPD(port) {
                 json(Response.Status.OK, ok().put("changed", JSONArray(changed)))
             }
             m == Method.POST && path == "/api/reload" -> { Hub.reload(); json(Response.Status.OK, ok()) }
+            m == Method.PUT && path == "/api/calendars" -> {
+                val list = JSONArray(body)
+                for (i in 0 until list.length()) {
+                    val u = list.getJSONObject(i).optString("url")
+                    require(Regex("^(https?|webcal)://", RegexOption.IGNORE_CASE).containsMatchIn(u)) { "calendar ${i + 1}: url must be http(s) or webcal" }
+                }
+                Prefs.calendarsJson = list.toString()
+                CalendarSync.now()
+                json(Response.Status.OK, ok().put("count", list.length()))
+            }
+            m == Method.GET && path == "/api/calendars" ->
+                json(Response.Status.OK, ok().put("calendars", CalendarSync.publicList()).put("status", CalendarSync.status))
+            m == Method.POST && path == "/api/calendars/sync" -> { CalendarSync.now(); json(Response.Status.OK, ok()) }
             else -> json(Response.Status.NOT_FOUND, JSONObject().put("error", "not found: $m $path"))
         }
     }
