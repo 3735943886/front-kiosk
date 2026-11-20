@@ -12,7 +12,9 @@ import org.json.JSONTokener
  *   DELETE /api/notify/{id}         알림 지우기
  *   DELETE /api/notify              알림 모두 지우기
  *   PUT    /api/agenda              일정 목록 통째로 교체 (body: JSON 배열)
- *   POST   /api/speak               {"text": "..."} 화면 표시 없이 음성만
+ *   POST   /api/speak               {"text", "voice"?, "rate"?, "pitch"?} 화면 표시 없이 음성만 (voice 등은 이번 한 번만)
+ *   GET    /api/tts                 한국어 음성 목록과 현재 설정
+ *   PUT    /api/tts                 {"voice"?, "rate"?, "pitch"?} 기본 음성 저장 (voice "" = 엔진 기본, rate·pitch 0.5~2.0)
  *   GET    /api/state               현재 알림·일정
  *   GET    /api/android-notifications?package=&limit=  받은 알림 원본 (최근 것부터, 기기 파일에 500개 보관)
  *   PUT    /api/config              {"place","lat","lon","pin","watch","consume","url"}
@@ -78,8 +80,34 @@ class ApiServer(port: Int) : NanoHTTPD(port) {
                 json(Response.Status.OK, ok().put("count", list.length()))
             }
             m == Method.POST && path == "/api/speak" -> {
-                Hub.speak(JSONObject(body).getString("text"))
+                val o = JSONObject(body)
+                val voice = o.optString("voice", "").takeIf { o.has("voice") }
+                require(voice == null || Hub.hasVoice(voice)) { "unknown voice: $voice (GET /api/tts)" }
+                Hub.speak(o.getString("text"), voice, rate(o, "rate"), rate(o, "pitch"))
                 json(Response.Status.OK, ok().put("tts", Hub.ttsReady))
+            }
+            m == Method.GET && path == "/api/tts" -> {
+                val voices = JSONArray()
+                for (v in Hub.koreanVoices()) voices.put(JSONObject()
+                    .put("name", v.name).put("quality", v.quality).put("latency", v.latency)
+                    .put("network", v.isNetworkConnectionRequired)
+                    .put("installed", android.speech.tts.TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in v.features))
+                json(Response.Status.OK, JSONObject().put("engine", Hub.ttsEngine()).put("current", Hub.ttsVoiceName())
+                    .put("voice", Prefs.ttsVoice).put("rate", Prefs.ttsRate.toDouble()).put("pitch", Prefs.ttsPitch.toDouble())
+                    .put("voices", voices))
+            }
+            m == Method.PUT && path == "/api/tts" -> {
+                val o = JSONObject(body)
+                if (o.has("voice")) {
+                    val v = o.getString("voice").trim()
+                    require(Hub.hasVoice(v)) { "unknown voice: $v (GET /api/tts)" }
+                    Prefs.ttsVoice = v
+                }
+                rate(o, "rate")?.let { Prefs.ttsRate = it }
+                rate(o, "pitch")?.let { Prefs.ttsPitch = it }
+                Hub.applySavedVoice()
+                json(Response.Status.OK, ok().put("voice", Prefs.ttsVoice)
+                    .put("rate", Prefs.ttsRate.toDouble()).put("pitch", Prefs.ttsPitch.toDouble()))
             }
             m == Method.GET && path == "/api/state" -> {
                 val r = decode(Hub.jsBlocking("JSON.stringify({notifs: kiosk.list(), agenda: kiosk.agenda()})")) as? String
@@ -145,6 +173,14 @@ class ApiServer(port: Int) : NanoHTTPD(port) {
     }
 
     private fun ok() = JSONObject().put("ok", true)
+
+    /** 말하기 속도·높낮이: 없으면 null, 0.5~2.0 밖이면 오류 */
+    private fun rate(o: JSONObject, k: String): Float? {
+        if (!o.has(k)) return null
+        val v = o.getDouble(k)
+        require(v in 0.5..2.0) { "$k must be 0.5..2.0" }
+        return v.toFloat()
+    }
     private fun decode(r: String?): Any? = if (r == null || r == "null") null else JSONTokener(r).nextValue()
 
     private fun readBody(s: IHTTPSession): String {

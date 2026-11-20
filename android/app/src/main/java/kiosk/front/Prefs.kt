@@ -32,6 +32,11 @@ object Prefs {
     var consume: Boolean get() = sp.getBoolean("consume", true); set(v) = sp.edit().putBoolean("consume", v).apply()
     var port: Int get() = sp.getInt("port", 8080); set(v) = sp.edit().putInt("port", v).apply()
 
+    // 음성: 비어 있으면 엔진의 한국어 기본 음성. 설정: PUT /api/tts
+    var ttsVoice: String get() = str("ttsVoice", ""); set(v) = put("ttsVoice", v)
+    var ttsRate: Float get() = sp.getFloat("ttsRate", 1f); set(v) = sp.edit().putFloat("ttsRate", v).apply()
+    var ttsPitch: Float get() = sp.getFloat("ttsPitch", 1f); set(v) = sp.edit().putFloat("ttsPitch", v).apply()
+
     // 날씨 위치 (웹 CONFIG 를 덮어씀)
     var place: String get() = str("place", ""); set(v) = put("place", v)
     var lat: String get() = str("lat", ""); set(v) = put("lat", v)

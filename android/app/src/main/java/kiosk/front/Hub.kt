@@ -46,7 +46,8 @@ object Hub {
             if (ttsOk) {
                 val r = tts?.setLanguage(Locale.KOREAN) ?: TextToSpeech.LANG_NOT_SUPPORTED
                 ttsKorean = r >= 0
-                Log.i(TAG, "TTS ready: engine=${tts?.defaultEngine} korean=$ttsKorean ($r)")
+                applySavedVoice()
+                Log.i(TAG, "TTS ready: engine=${tts?.defaultEngine} korean=$ttsKorean ($r) voice=${tts?.voice?.name}")
                 while (pendingSpeech.isNotEmpty()) speak(pendingSpeech.removeFirst())
             } else Log.w(TAG, "TTS 엔진을 찾지 못했습니다")
         }
@@ -82,18 +83,44 @@ object Hub {
     fun reload() = main.post { web?.get()?.reload() }
     fun startUrl(): String = Prefs.url.ifBlank { ASSET_URL }
 
-    fun speak(text: String) {
-        if (!ttsOk) {
+    /**
+     * voice·rate·pitch 를 주면 이번 한 번만 그 음성으로 말한다 (들어보고 고를 때).
+     * 요청마다 음성 설정이 함께 넘어가므로 말한 뒤 저장된 설정으로 되돌려도 앞의 문장에 영향이 없다.
+     */
+    fun speak(text: String, voice: String? = null, rate: Float? = null, pitch: Float? = null) { main.post {
+        val t = tts
+        if (!ttsOk || t == null) {
             Log.w(TAG, "TTS 준비 안 됨, 연결 후 재생")
-            main.post { pendingSpeech.addLast(text); while (pendingSpeech.size > 3) pendingSpeech.removeFirst() }
+            pendingSpeech.addLast(text); while (pendingSpeech.size > 3) pendingSpeech.removeFirst()
             ensureTts()
-            return
+            return@post
         }
-        tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "k${System.nanoTime()}")
-    }
+        val once = voice != null || rate != null || pitch != null
+        if (once) applyVoice(voice ?: Prefs.ttsVoice, rate ?: Prefs.ttsRate, pitch ?: Prefs.ttsPitch)
+        t.speak(text, TextToSpeech.QUEUE_ADD, null, "k${System.nanoTime()}")
+        if (once) applySavedVoice()
+    } }
     val ttsReady get() = ttsOk
     val ttsKoreanReady get() = ttsKorean
     fun ttsEngine(): String = tts?.defaultEngine ?: ""
+    fun ttsVoiceName(): String = tts?.voice?.name ?: ""
+
+    /** 한국어 음성 목록. network=true 는 인터넷(클라우드)으로 합성하는 음성 */
+    fun koreanVoices(): List<android.speech.tts.Voice> =
+        (tts?.voices ?: emptySet()).filter { it.locale.language == "ko" }.sortedBy { it.name }
+
+    fun hasVoice(name: String) = name.isBlank() || koreanVoices().any { it.name == name }
+
+    fun applySavedVoice() = applyVoice(Prefs.ttsVoice, Prefs.ttsRate, Prefs.ttsPitch)
+
+    /** 이름이 비었거나 없는 음성이면 한국어 기본 음성 */
+    private fun applyVoice(name: String, rate: Float, pitch: Float) {
+        val t = tts ?: return
+        val v = if (name.isBlank()) null else koreanVoices().firstOrNull { it.name == name }
+        if (v != null) t.voice = v else t.setLanguage(Locale.KOREAN)
+        t.setSpeechRate(rate)
+        t.setPitch(pitch)
+    }
 
     /** 설치된 앱의 실행 인텐트 (매니페스트 <queries> LAUNCHER 로 보이는 앱만) */
     fun launchIntent(pkg: String): android.content.Intent? = appCtx?.packageManager?.getLaunchIntentForPackage(pkg)

@@ -72,7 +72,9 @@ adb logcat -d -s Kiosk | grep token                       # API 토큰 확인
 | `POST /api/notify` | 알림 추가/갱신 (같은 `id` 면 갱신) → `{"id"}` |
 | `DELETE /api/notify/{id}` · `DELETE /api/notify` | 알림 하나/전부 지우기 |
 | `PUT /api/agenda` | 일정 목록 전체 교체 |
-| `POST /api/speak` | `{"text"}` 음성만 |
+| `POST /api/speak` | `{"text"}` 음성만. `voice` `rate` `pitch` 를 같이 주면 이번 한 번만 그 음성으로 |
+| `GET /api/tts` | 한국어 음성 목록(`network: true` 는 클라우드 합성)과 현재 설정 |
+| `PUT /api/tts` | `{"voice", "rate", "pitch"}` 기본 음성 저장. `voice: ""` = 엔진 기본, 속도·높낮이 0.5~2.0 |
 | `GET /api/state` | 현재 알림·일정 |
 | `GET /api/android-notifications?package=&limit=` | 받은 알림 원본, 최근 것부터 (기기 파일에 500개 보관, 어댑터 작성용) |
 | `PUT /api/config` | `place` `lat` `lon` `pin` `watch` `consume` `url` |
