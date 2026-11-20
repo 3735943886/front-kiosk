@@ -52,8 +52,17 @@ class MainActivity : Activity() {
             webViewClient = Client()
         }
         setContentView(web)
+        // 키보드가 뜨면 WebView 를 키보드 위까지로 줄인다 (전체 화면 모드라 시스템 adjustResize 가 동작하지 않음).
+        // 화면을 통째로 밀어 올리지 않으므로 입력 화면이 엉뚱한 곳으로 가지 않는다.
+        web.setOnApplyWindowInsetsListener { v, insets ->
+            val ime = insets.getInsets(WindowInsets.Type.ime()).bottom
+            val lp = v.layoutParams as ViewGroup.MarginLayoutParams
+            if (lp.bottomMargin != ime) { lp.bottomMargin = ime; v.layoutParams = lp }
+            v.onApplyWindowInsets(insets)
+        }
         hideSystemBars()
         Hub.attach(web)
+        Hub.activity = java.lang.ref.WeakReference(this)
         web.loadUrl(Hub.startUrl())
         Kiosk.applyPolicies(this)
     }
@@ -67,6 +76,7 @@ class MainActivity : Activity() {
         super.onResume()
         hideSystemBars()
         Kiosk.lock(this)
+        Hub.ensureTts()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

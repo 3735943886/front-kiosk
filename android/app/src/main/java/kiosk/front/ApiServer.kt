@@ -23,6 +23,9 @@ import org.json.JSONTokener
  *   PUT    /api/gas                 {"url","token"} Apps Script 웹 앱 (일정 읽기·쓰기) 등록
  *   GET    /api/gas                 설정 여부와 마지막 동기화 결과
  *   POST   /api/gas/sync            지금 동기화
+ *   POST   /api/admin/unlock        키오스크 잠금 잠시 해제 (홈으로 돌아오면 다시 잠김)
+ *   POST   /api/admin/lock          대시보드로 돌아가 다시 잠금
+ *   POST   /api/admin/open          {"uri"} 또는 {"package"} 잠금 해제 후 열기 (예: market://details?id=…)
  */
 class ApiServer(port: Int) : NanoHTTPD(port) {
 
@@ -50,7 +53,8 @@ class ApiServer(port: Int) : NanoHTTPD(port) {
         val m = s.method
         if (m == Method.OPTIONS) return cors(newFixedLengthResponse(Response.Status.OK, "text/plain", ""))
         if (path == "/api/health") {
-            return json(Response.Status.OK, JSONObject().put("ok", true).put("tts", Hub.ttsReady))
+            return json(Response.Status.OK, JSONObject().put("ok", true)
+                .put("tts", Hub.ttsReady).put("ttsKorean", Hub.ttsKoreanReady).put("ttsEngine", Hub.ttsEngine()))
         }
         if (s.headers["authorization"] != "Bearer ${Prefs.token}") {
             return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "unauthorized"))
@@ -115,6 +119,25 @@ class ApiServer(port: Int) : NanoHTTPD(port) {
             m == Method.GET && path == "/api/gas" ->
                 json(Response.Status.OK, ok().put("configured", Prefs.gasReady).put("status", GasSync.status))
             m == Method.POST && path == "/api/gas/sync" -> { GasSync.now(); json(Response.Status.OK, ok()) }
+            m == Method.POST && path == "/api/admin/unlock" ->
+                json(Response.Status.OK, ok().put("done", Hub.onActivity { Kiosk.unlock(it) }))
+            m == Method.POST && path == "/api/admin/lock" -> json(Response.Status.OK, ok().put("done", Hub.onActivity { a ->
+                a.startActivity(android.content.Intent(a, MainActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+                Kiosk.lock(a)
+            }))
+            m == Method.POST && path == "/api/admin/open" -> {
+                val o = JSONObject(body.ifBlank { "{}" })
+                val uri = o.optString("uri"); val pkg = o.optString("package")
+                require(uri.isNotBlank() || pkg.isNotBlank()) { "uri or package required" }
+                json(Response.Status.OK, ok().put("done", Hub.onActivity { a ->
+                    Kiosk.unlock(a)
+                    val i = if (uri.isNotBlank()) android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(uri))
+                    else a.packageManager.getLaunchIntentForPackage(pkg)
+                    if (i == null) Log.w(TAG, "open: no launch intent for $pkg")
+                    else try { a.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { Log.w(TAG, "open failed", e) }
+                }))
+            }
             else -> json(Response.Status.NOT_FOUND, JSONObject().put("error", "not found: $m $path"))
         }
     }

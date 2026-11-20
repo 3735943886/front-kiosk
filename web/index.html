@@ -820,7 +820,16 @@ function sheetShow(html) {
 /* 무조작 복귀: 마지막 터치 후 idleResetSec 지나면 모든 화면을 닫고 초기 화면으로 */
 let lastTouch = Date.now();
 function touched() { lastTouch = Date.now(); }
-["pointerdown", "keydown", "wheel", "touchmove"].forEach((ev) => document.addEventListener(ev, touched, { passive: true, capture: true }));
+["pointerdown", "keydown", "input", "wheel", "touchmove"].forEach((ev) => document.addEventListener(ev, touched, { passive: true, capture: true }));
+
+/* 키보드: 앱이 키보드 높이만큼 화면을 줄여 주므로, 입력 칸이 그 안에서 보이게 스크롤만 해 준다 */
+const isField = (el) => el && el.matches?.('input:not([type="checkbox"]), textarea');
+function revealFocused() {
+  const el = document.activeElement;
+  if (isField(el) && el.closest("#sheet")) el.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+document.addEventListener("focusin", (e) => { if (isField(e.target)) setTimeout(revealFocused, 350); });
+window.addEventListener("resize", () => setTimeout(revealFocused, 120));
 function idleCheck() {
   const limit = $("#addForm") ? 120 : CONFIG.idleResetSec;   // 입력 중엔 넉넉하게 (시간 선택 창 등)
   if (Date.now() - lastTouch < limit * 1000) return;
