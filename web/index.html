@@ -90,7 +90,7 @@ body.night #fx { opacity: .45; }
 }
 .date b { color: var(--fg); font-weight: 400; }
 .date.holiday #dateText, .date.holiday b { color: var(--urgent); }
-/* 종일 일정은 날짜 옆에: "11월 20일 금요일 · 김장 · 엄마 생일" */
+/* 종일 일정은 날짜 아래 줄에: "김장 · 엄마 생일 · 제주 여행 2/3일" */
 #dayEvents { display: flex; gap: .5em; flex: none; cursor: pointer; }
 #dayEvents:empty { display: none; }
 .de { flex: none; color: var(--fg); }
@@ -122,8 +122,13 @@ body.night #fx { opacity: .45; }
 .agenda .pre, .agenda .more-ev, .agenda .chev { color: var(--dim); flex: none; }
 .agenda .chev { font-size: 1.2em; line-height: 1; }
 .agenda.later .it.next { color: var(--dim); }
-.agenda.empty .it { color: var(--dim); opacity: .7; }
 #dateText { cursor: pointer; }
+/* 일정이 하나도 없을 때만 요일 옆에 보이는 추가 버튼 */
+#dateAdd {
+  flex: none; align-self: center; width: 1.5em; height: 1.5em; margin-left: .1em;
+  display: grid; place-items: center; padding: 0; font-size: 1em; line-height: 1;
+  color: var(--dim); background: none; border: 1px solid var(--faint); border-radius: 50%; cursor: pointer;
+}
 /* 공간이 모자라면 덜 중요한 것부터 숨김: 시간별 예보 → 날씨 설명 → 일정 줄 */
 #float.c1 .wx-hours, #float.c2 .wx-hours, #float.c3 .wx-hours { display: none; }
 #float.c2 .wx-desc, #float.c3 .wx-desc { display: none; }
@@ -303,7 +308,7 @@ body.night #dock { opacity: .75; }
     <div id="float" aria-label="시계와 날씨">
       <div>
         <div class="clock" id="clock">--<span class="colon">:</span>--</div>
-        <div class="date" id="date"><span id="dateText"></span><span id="dayEvents"></span></div>
+        <div class="date" id="date"><span id="dateText"></span><button type="button" id="dateAdd" aria-label="일정 추가" hidden>＋</button><span id="dayEvents"></span></div>
         <button type="button" class="agenda" id="agenda" hidden></button>
       </div>
       <div class="wx" id="wx"></div>
@@ -901,7 +906,7 @@ function rebuildAgenda() {
     store.set("kiosk.calItems", calItems);
   }
   agenda = mergeSources();
-  agendaSig = "";
+  agendaSig = null;
   renderAgenda();
 }
 /* Apps Script 웹 앱이 준 일정(이미 펼쳐진 것): { uid, title, start, end, allDay, location, description, calendar, color } */
@@ -946,7 +951,7 @@ const eventsOn = (dayOffset) => {
 };
 const evColor = (e) => (e.color ? `--ec:${esc(e.color)}` : "");
 
-let agendaSig = "";
+let agendaSig = null;
 function renderAgenda() {
   renderDayLine();
   const now = Date.now(), today = eventsOn(0);
@@ -964,16 +969,17 @@ function renderAgenda() {
     return `<span class="it${i === 0 ? " next" : ""}${live ? " live" : ""}"><span class="t">${t}</span> ${esc(e.title)}</span>`;
   };
   const el = $("#agenda");
-  const empty = !list.length && canAddEvent();   // 일정이 없으면 흐린 "＋ 일정 추가"만
   const html = list.length
     ? `<span class="bar"></span>${later ? '<span class="pre">내일</span>' : ""}<span class="its">${list.map(item).join("")}</span><span class="more-ev" hidden></span><span class="chev">›</span>`
-    : empty ? '<span class="its"><span class="it">＋ 일정 추가</span></span>' : "";
+    : "";
+  // 일정 추가는 모달에만. 오늘·내일 일정이 하나도 없을 때만 요일 옆에 작은 ＋ (모달로 가는 길이 없으므로)
+  $("#dateAdd").hidden = !(canAddEvent() && !list.length && !today.length);
   const sig = html + (list[0]?.color || "");
   if (sig !== agendaSig) {
     agendaSig = sig;
     el.hidden = !html;
     el.innerHTML = html;
-    el.className = `agenda${later ? " later" : ""}${empty ? " empty" : ""}`;
+    el.className = `agenda${later ? " later" : ""}`;
     el.style.cssText = list.length ? evColor(list[0]) : "";
   }
   fitAgenda();
@@ -1007,9 +1013,7 @@ function fitDayLine() {
     more.textContent = `외 ${items.length - k}`;
   };
   const fits = () => d.scrollWidth <= d.clientWidth + 1 && box.scrollWidth <= box.clientWidth + 1;
-  show(items.length);
-  if (fits()) return;                       // 날짜 옆에 전부 들어감
-  d.classList.add("stack");                 // 아니면 둘째 줄에서 들어가는 만큼
+  d.classList.add("stack");                 // 종일 일정은 항상 날짜 아래 줄에, 들어가는 만큼
   for (let k = items.length; k >= 1; k--) { show(k); if (fits()) return; }
   items[0].style.maxWidth = `${Math.max(48, box.clientWidth - more.offsetWidth - 12)}px`; // 하나도 길면 말줄임
 }
@@ -1211,7 +1215,7 @@ function onActivate(e) {
     return;
   }
   if (e.target.closest("[data-more]")) return openList();
-  if (e.target.closest("#agenda.empty")) return openAddForm();
+  if (e.target.closest("#dateAdd")) return openAddForm();
   if (e.target.closest("#agenda, #dayEvents, #dateText")) return openAgenda();
   const evId = e.target.closest("[data-ev]")?.dataset.ev;
   if (evId) return openEvent(evId);
