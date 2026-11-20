@@ -228,6 +228,7 @@
         start: o.start, end: o.end, allDay: o.allDay,
         location: o.location, note: tags.note,
         calendar: cal.name || "", color: cal.color || undefined,
+        holiday: !!cal.holiday || /휴일|공휴일|holiday/i.test(cal.name || ""),
         remind: tags.remind || (Array.isArray(cal.remind) ? cal.remind : cal.remind ? [cal.remind] : null),
         speakText: tags.speak || undefined,
       };
