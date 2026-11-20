@@ -122,6 +122,8 @@ body.night #fx { opacity: .45; }
 .agenda .pre, .agenda .more-ev, .agenda .chev { color: var(--dim); flex: none; }
 .agenda .chev { font-size: 1.2em; line-height: 1; }
 .agenda.later .it.next { color: var(--dim); }
+.agenda.empty .it { color: var(--dim); opacity: .7; }
+#dateText { cursor: pointer; }
 /* 공간이 모자라면 덜 중요한 것부터 숨김: 시간별 예보 → 날씨 설명 → 일정 줄 */
 #float.c1 .wx-hours, #float.c2 .wx-hours, #float.c3 .wx-hours { display: none; }
 #float.c2 .wx-desc, #float.c3 .wx-desc { display: none; }
@@ -962,15 +964,16 @@ function renderAgenda() {
     return `<span class="it${i === 0 ? " next" : ""}${live ? " live" : ""}"><span class="t">${t}</span> ${esc(e.title)}</span>`;
   };
   const el = $("#agenda");
+  const empty = !list.length && canAddEvent();   // 일정이 없으면 흐린 "＋ 일정 추가"만
   const html = list.length
     ? `<span class="bar"></span>${later ? '<span class="pre">내일</span>' : ""}<span class="its">${list.map(item).join("")}</span><span class="more-ev" hidden></span><span class="chev">›</span>`
-    : "";
+    : empty ? '<span class="its"><span class="it">＋ 일정 추가</span></span>' : "";
   const sig = html + (list[0]?.color || "");
   if (sig !== agendaSig) {
     agendaSig = sig;
-    el.hidden = !list.length;
+    el.hidden = !html;
     el.innerHTML = html;
-    el.className = `agenda${later ? " later" : ""}`;
+    el.className = `agenda${later ? " later" : ""}${empty ? " empty" : ""}`;
     el.style.cssText = list.length ? evColor(list[0]) : "";
   }
   fitAgenda();
@@ -1017,6 +1020,7 @@ function fitAgenda() {
   const ref = Math.max($("#clock").offsetWidth, 340);
   el.style.maxWidth = `${Math.min(zoneW, ref)}px`;
   const its = el.querySelector(".its"), items = [...el.querySelectorAll(".it")], more = el.querySelector(".more-ev");
+  if (!its || !more) return;   // "＋ 일정 추가"만 있을 때
   for (let k = items.length; k >= 1; k--) {
     items.forEach((it, i) => { it.hidden = i >= k; it.classList.toggle("solo", k === 1 && i === 0); });
     more.hidden = k === items.length;
@@ -1207,7 +1211,8 @@ function onActivate(e) {
     return;
   }
   if (e.target.closest("[data-more]")) return openList();
-  if (e.target.closest("#agenda, #dayEvents")) return openAgenda();
+  if (e.target.closest("#agenda.empty")) return openAddForm();
+  if (e.target.closest("#agenda, #dayEvents, #dateText")) return openAgenda();
   const evId = e.target.closest("[data-ev]")?.dataset.ev;
   if (evId) return openEvent(evId);
   const ai = e.target.closest("[data-ai]")?.dataset.ai;
