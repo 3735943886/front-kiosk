@@ -31,6 +31,7 @@ class AutoAllow : AccessibilityService() {
     private fun allow() {
         val root = rootInActiveWindow ?: return
         if (root.packageName?.toString() != SYSTEMUI) return
+        save(root)
         val text = texts(root).joinToString(" | ")
         // 무선 디버깅 창인지 문구로 확인. USB 디버깅(컴퓨터 키 승인) 창은 건드리지 않는다
         val wifi = Regex("무선 디버깅|wireless debugging", RegexOption.IGNORE_CASE).containsMatchIn(text)
@@ -53,6 +54,35 @@ class AutoAllow : AccessibilityService() {
         dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 60)).build(), null, null)
     }
 
+    /** 마지막으로 본 SystemUI 창: 노드 목록(JSON)과 스크린샷 → GET /api/admin/prompt, /api/admin/prompt.png */
+    private fun save(root: AccessibilityNodeInfo) {
+        val nodes = org.json.JSONArray()
+        fun walk(n: AccessibilityNodeInfo?) {
+            if (n == null) return
+            val r = Rect().also { n.getBoundsInScreen(it) }
+            nodes.put(org.json.JSONObject().put("text", n.text?.toString() ?: "").put("id", n.viewIdResourceName ?: "")
+                .put("cls", n.className?.toString() ?: "").put("checkable", n.isCheckable).put("checked", n.isChecked)
+                .put("clickable", n.isClickable).put("bounds", r.flattenToString()))
+            for (i in 0 until n.childCount) walk(n.getChild(i))
+        }
+        walk(root)
+        try {
+            java.io.File(filesDir, PROMPT_JSON).writeText(org.json.JSONObject()
+                .put("time", System.currentTimeMillis()).put("nodes", nodes).toString())
+        } catch (e: Exception) { Log.w(TAG, "prompt save", e) }
+        takeScreenshot(android.view.Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+            override fun onSuccess(s: ScreenshotResult) {
+                val bmp = android.graphics.Bitmap.wrapHardwareBuffer(s.hardwareBuffer, s.colorSpace) ?: return
+                try {
+                    java.io.File(filesDir, PROMPT_PNG).outputStream().use {
+                        bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, false).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                } catch (e: Exception) { Log.w(TAG, "prompt shot", e) } finally { s.hardwareBuffer.close() }
+            }
+            override fun onFailure(code: Int) { Log.w(TAG, "prompt shot failed $code") }
+        })
+    }
+
     private fun texts(n: AccessibilityNodeInfo?, out: MutableList<String> = mutableListOf()): List<String> {
         if (n == null) return out
         n.text?.toString()?.takeIf { it.isNotBlank() }?.let { out += it }
@@ -62,5 +92,9 @@ class AutoAllow : AccessibilityService() {
 
     override fun onInterrupt() {}
 
-    companion object { const val SYSTEMUI = "com.android.systemui" }
+    companion object {
+        const val SYSTEMUI = "com.android.systemui"
+        const val PROMPT_JSON = "last-prompt.json"
+        const val PROMPT_PNG = "last-prompt.png"
+    }
 }

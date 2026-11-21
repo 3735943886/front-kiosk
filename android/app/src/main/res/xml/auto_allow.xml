@@ -6,5 +6,6 @@
     android:accessibilityFlags="flagReportViewIds"
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
     android:notificationTimeout="100"
     android:packageNames="com.android.systemui" />

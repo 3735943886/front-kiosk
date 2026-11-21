@@ -29,6 +29,7 @@ import org.json.JSONTokener
  *   POST   /api/admin/lock          대시보드로 돌아가 다시 잠금
  *   GET    /api/admin/adb           adb 상태와 무선 디버깅 포트 {"adb","tcp5555","wifi","wifiPort"} (포트 찾기에 몇 초)
  *   POST   /api/admin/adb           {"wifi": true|false} 무선 디버깅 켜기/끄기 → 위와 같은 상태
+ *   GET    /api/admin/prompt(.png)  AutoAllow 가 마지막으로 본 SystemUI 창의 노드 목록 / 스크린샷
  *   POST   /api/admin/reboot        기기 재부팅 (5555 는 닫힌 채로 올라온다 → /api/admin/adb 로 복구)
  *   POST   /api/admin/open          {"uri"} 또는 {"package"} 잠금 해제 후 열기 (예: market://details?id=…)
  */
@@ -167,6 +168,16 @@ class ApiServer(port: Int) : NanoHTTPD(port) {
                 if (err != null) return json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", err))
                 Thread.sleep(2500) // adbd 가 포트를 여는 시간
                 json(Response.Status.OK, AdbAccess.status(Hub.context(), scan = on))
+            }
+            m == Method.GET && path == "/api/admin/prompt" -> {
+                val f = java.io.File(Hub.context().filesDir, AutoAllow.PROMPT_JSON)
+                if (!f.exists()) json(Response.Status.NOT_FOUND, JSONObject().put("error", "no prompt seen yet"))
+                else raw(Response.Status.OK, f.readText())
+            }
+            m == Method.GET && path == "/api/admin/prompt.png" -> {
+                val f = java.io.File(Hub.context().filesDir, AutoAllow.PROMPT_PNG)
+                if (!f.exists()) json(Response.Status.NOT_FOUND, JSONObject().put("error", "no screenshot yet"))
+                else cors(newFixedLengthResponse(Response.Status.OK, "image/png", f.inputStream(), f.length()))
             }
             m == Method.POST && path == "/api/admin/reboot" -> {
                 val ctx = Hub.context()
