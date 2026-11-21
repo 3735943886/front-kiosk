@@ -84,6 +84,7 @@ adb logcat -d -s Kiosk | grep token                       # API 토큰 확인
 | `POST /api/admin/unlock` · `lock` | 키오스크 잠금 잠시 해제 / 다시 잠금 |
 | `POST /api/admin/open` | `{"uri"}` 또는 `{"package"}` 잠금 해제 후 열기 (Play 스토어 페이지 등) |
 | `GET /api/admin/adb` · `POST` | adb 상태와 무선 디버깅 포트(`wifiPort`, 찾는 데 몇 초). POST `{"wifi": true\|false}` 로 켜기/끄기. 5555 가 닫혀 있으면 앱이 시작할 때 무선 디버깅을 켜 둔다 → `adb connect <ip>:<wifiPort>` 후 `adb tcpip 5555` |
+| `POST /api/admin/reboot` | 재부팅. 5555 는 닫힌 채로 올라오므로 `/api/admin/adb` 로 복구. 이 기기는 무선 디버깅 "네트워크 허용"을 재부팅마다 잊어서, 접근성 서비스 `AutoAllow` 가 그 창만 자동 허용한다 (한 번 켜기: `adb shell settings put secure enabled_accessibility_services kiosk.front/kiosk.front.AutoAllow`) |
 | `GET /api/health` | 상태, TTS 엔진·한국어 음성 준비 여부 (인증 없음) |
 
 ### 알림 형식

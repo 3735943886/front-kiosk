@@ -75,16 +75,24 @@ object AdbAccess {
     }
 
     /** 앱 시작 시: 5555 가 닫혀 있으면 무선 디버깅을 켜 둔다 (adb 복구 통로) */
-    // 부팅 직후엔 Wi-Fi 가 아직 없어 시스템이 바로 끌 수 있으니 몇 분간 다시 시도
+    // Wi-Fi 연결 전에 켜면 시스템이 무시한다. 연결을 기다렸다가 켜고, 꺼지면 10분간 다시 시도
     fun ensureOnStart(c: Context) = Thread {
-        repeat(10) {
-            if (isOpen(5555) || wifiEnabled(c)) return@Thread
-            val err = setWifi(c, true)
-            Log.i(TAG, "adb 5555 closed; wireless debugging on: ${err ?: "ok"}")
-            if (err != null) return@Thread
+        repeat(20) {
+            if (isOpen(5555) || (wifiEnabled(c) && onWifi(c))) return@Thread
+            if (onWifi(c)) {
+                val err = setWifi(c, true)
+                Log.i(TAG, "adb 5555 closed; wireless debugging on: ${err ?: "ok"}")
+                if (err != null) return@Thread
+            }
             Thread.sleep(30_000)
         }
     }.start()
+
+    private fun onWifi(c: Context): Boolean {
+        val cm = c.getSystemService(android.net.ConnectivityManager::class.java)
+        return cm.getNetworkCapabilities(cm.activeNetwork)
+            ?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+    }
 
     fun status(c: Context, scan: Boolean): org.json.JSONObject = org.json.JSONObject()
         .put("adb", adbEnabled(c)).put("tcp5555", isOpen(5555)).put("wifi", wifiEnabled(c))

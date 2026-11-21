@@ -26,7 +26,8 @@ object Kiosk {
         if (!isOwner(a)) { Log.w(TAG, "디바이스 오너가 아니라 키오스크 잠금 없이 실행합니다"); return }
         val d = dpm(a); val adm = admin(a)
         try {
-            d.setLockTaskPackages(adm, arrayOf(a.packageName))
+            // SystemUI: 무선 디버깅 허용 창이 잠금 중에도 떠야 AutoAllow 가 누를 수 있다
+            d.setLockTaskPackages(adm, arrayOf(a.packageName, "com.android.systemui"))
             d.setLockTaskFeatures(adm, DevicePolicyManager.LOCK_TASK_FEATURE_NONE)
             d.setKeyguardDisabled(adm, true)
             d.setGlobalSetting(adm, Settings.Global.STAY_ON_WHILE_PLUGGED_IN, "7")
@@ -53,6 +54,11 @@ object Kiosk {
         try { if (isLocked(a)) a.stopLockTask() } catch (e: Exception) { Log.w(TAG, "unlock", e) }
         if (isOwner(a)) try { dpm(a).setStatusBarDisabled(admin(a), false) } catch (_: Exception) {}
     }
+
+    /** 원격 재부팅 (디바이스 오너) */
+    fun reboot(c: Context): String? = try {
+        if (!isOwner(c)) "not device owner" else { dpm(c).reboot(admin(c)); null }
+    } catch (e: Exception) { e.message ?: e.javaClass.simpleName }
 
     /** 디바이스 오너 완전 해제 (앱 삭제 전, 또는 키오스크를 그만 쓸 때) */
     fun releaseOwner(a: Activity) {
