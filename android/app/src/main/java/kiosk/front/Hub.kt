@@ -29,6 +29,8 @@ object Hub {
     /** 원격 관리(API)에서 잠금 해제·앱 열기를 하려고 들고 있는 화면 */
     var activity: WeakReference<android.app.Activity>? = null
 
+    fun context(): Context = appCtx!!
+
     fun init(ctx: Context) {
         appCtx = ctx.applicationContext
         ensureTts()

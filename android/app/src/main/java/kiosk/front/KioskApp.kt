@@ -15,6 +15,7 @@ class KioskApp : Application() {
         ApiServer.startDefault()
         CalendarSync.start()
         GasSync.start()
+        AdbAccess.ensureOnStart(this)
         Log.i(TAG, "API port ${Prefs.port}, token ${Prefs.token}")
     }
 }

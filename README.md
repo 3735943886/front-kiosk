@@ -83,6 +83,7 @@ adb logcat -d -s Kiosk | grep token                       # API 토큰 확인
 | `PUT /api/gas` · `GET` · `POST …/sync` | Apps Script 웹 앱 (일정 읽기·쓰기) |
 | `POST /api/admin/unlock` · `lock` | 키오스크 잠금 잠시 해제 / 다시 잠금 |
 | `POST /api/admin/open` | `{"uri"}` 또는 `{"package"}` 잠금 해제 후 열기 (Play 스토어 페이지 등) |
+| `GET /api/admin/adb` · `POST` | adb 상태와 무선 디버깅 포트(`wifiPort`, 찾는 데 몇 초). POST `{"wifi": true\|false}` 로 켜기/끄기. 5555 가 닫혀 있으면 앱이 시작할 때 무선 디버깅을 켜 둔다 → `adb connect <ip>:<wifiPort>` 후 `adb tcpip 5555` |
 | `GET /api/health` | 상태, TTS 엔진·한국어 음성 준비 여부 (인증 없음) |
 
 ### 알림 형식

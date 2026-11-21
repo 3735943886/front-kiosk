@@ -27,6 +27,8 @@ import org.json.JSONTokener
  *   POST   /api/gas/sync            지금 동기화
  *   POST   /api/admin/unlock        키오스크 잠금 잠시 해제 (홈으로 돌아오면 다시 잠김)
  *   POST   /api/admin/lock          대시보드로 돌아가 다시 잠금
+ *   GET    /api/admin/adb           adb 상태와 무선 디버깅 포트 {"adb","tcp5555","wifi","wifiPort"} (포트 찾기에 몇 초)
+ *   POST   /api/admin/adb           {"wifi": true|false} 무선 디버깅 켜기/끄기 → 위와 같은 상태
  *   POST   /api/admin/open          {"uri"} 또는 {"package"} 잠금 해제 후 열기 (예: market://details?id=…)
  */
 class ApiServer(port: Int) : NanoHTTPD(port) {
@@ -157,6 +159,14 @@ class ApiServer(port: Int) : NanoHTTPD(port) {
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
                 Kiosk.lock(a)
             }))
+            m == Method.GET && path == "/api/admin/adb" -> json(Response.Status.OK, AdbAccess.status(Hub.context(), scan = true))
+            m == Method.POST && path == "/api/admin/adb" -> {
+                val on = JSONObject(body.ifBlank { "{}" }).optBoolean("wifi", true)
+                val err = AdbAccess.setWifi(Hub.context(), on)
+                if (err != null) return json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", err))
+                Thread.sleep(2500) // adbd 가 포트를 여는 시간
+                json(Response.Status.OK, AdbAccess.status(Hub.context(), scan = on))
+            }
             m == Method.POST && path == "/api/admin/open" -> {
                 val o = JSONObject(body.ifBlank { "{}" })
                 val uri = o.optString("uri"); val pkg = o.optString("package")
